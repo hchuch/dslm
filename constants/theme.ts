@@ -1,41 +1,91 @@
 /**
- * Below are the colors that are used in the app. The colors are defined in the light and dark mode.
- * There are many other ways to style your app. For example, [Nativewind](https://www.nativewind.dev/), [Tamagui](https://tamagui.dev/), [unistyles](https://reactnativeunistyles.vercel.app), etc.
+ * Theme colors used across the app (light + dark variants).
  */
 
 import { Platform } from 'react-native';
 
-const tintColorLight = '#0a7ea4';
-const tintColorDark = '#fff';
+const Palette = {
+  // Primary colors
+  primary: '#105bd8',
+  primaryDarker: '#0b3d91',
+  primaryDarkest: '#061f4a',
+  base: '#212121',
+  grayDark: '#323a45',
+  grayLight: '#aeb0b5',
+  white: '#ffffff',
+
+  // Secondary colors
+  primaryAlt: '#02bfe7',
+  primaryAltDarkest: '#046b99',
+  primaryAltDark: '#00a6d2',
+  primaryAltLight: '#9bdaf1',
+  primaryAltLightest: '#e1f3f8',
+
+  secondary: '#dd361c',
+  secondaryDarkest: '#99231b',
+  secondaryDark: '#c62d1f',
+  secondaryLight: '#e59892',
+  secondaryLightest: '#f9e0de',
+
+  // Background colors
+  gray: '#5b616b',
+  grayLighter: '#d6d7d9',
+  grayLightest: '#f1f1f1',
+  grayWarmDark: '#494440',
+  grayWarmLight: '#e4e2e0',
+  grayCoolLight: '#dce4ef',
+
+  // Tertiary colors
+  gold: '#ff9d1e',
+  goldLight: '#f9aa43',
+  goldLighter: '#ffc375',
+  goldLightest: '#ffebd1',
+
+  green: '#2e8540',
+  greenLight: '#4aa564',
+  greenLighter: '#94bfa2',
+  greenLightest: '#e7f4e4',
+
+  coolBlue: '#205493',
+  coolBlueLight: '#4773aa',
+  coolBlueLighter: '#8ba6ca',
+  coolBlueLightest: '#dce4ef',
+
+  // Special states
+  focus: '#aeb0b5',
+  visited: '#4c2c92',
+};
 
 export const Colors = {
   light: {
-    text: '#11181C',
-    background: '#fff',
-    tint: tintColorLight,
-    icon: '#687076',
-    tabIconDefault: '#687076',
-    tabIconSelected: tintColorLight,
+    text: Palette.base,
+    background: Palette.white,
+    tint: Palette.primary,
+    icon: Palette.grayLight,
+    tabIconDefault: Palette.grayLight,
+    tabIconSelected: Palette.primary,
+    card: Palette.white,
+    border: Palette.grayLight,
+    ...Palette,
   },
   dark: {
-    text: '#ECEDEE',
-    background: '#151718',
-    tint: tintColorDark,
-    icon: '#9BA1A6',
-    tabIconDefault: '#9BA1A6',
-    tabIconSelected: tintColorDark,
+    text: Palette.white,
+    background: Palette.base,
+    tint: Palette.primary,
+    icon: Palette.grayLight,
+    tabIconDefault: Palette.grayLight,
+    tabIconSelected: Palette.primary,
+    card: Palette.grayDark,
+    border: Palette.grayDark,
+    ...Palette,
   },
 };
 
 export const Fonts = Platform.select({
   ios: {
-    /** iOS `UIFontDescriptorSystemDesignDefault` */
     sans: 'system-ui',
-    /** iOS `UIFontDescriptorSystemDesignSerif` */
     serif: 'ui-serif',
-    /** iOS `UIFontDescriptorSystemDesignRounded` */
     rounded: 'ui-rounded',
-    /** iOS `UIFontDescriptorSystemDesignMonospaced` */
     mono: 'ui-monospace',
   },
   default: {

@@ -1,0 +1,330 @@
+import { Ionicons } from '@expo/vector-icons';
+import React, { useState } from 'react';
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+
+import { useInventory } from '../hooks/use-inventory';
+import type { CTB, CTBSize, InventoryItem, ItemCategory, Location } from '../types/dslm';
+import { ThemedText } from './themed-text';
+import { ThemedView } from './themed-view';
+
+type Props = {
+    visible: boolean;
+    onClose: () => void;
+};
+
+export function AddShipmentModal({ visible, onClose }: Props) {
+    const { addCTB, addItem } = useInventory();
+
+    // CTB State
+    const [ctbId, setCtbId] = useState('');
+    const [ctbSize, setCtbSize] = useState<CTBSize>(1.0);
+    const [targetStack, setTargetStack] = useState('S1');
+    const [targetPosition, setTargetPosition] = useState('1');
+
+    // Items State
+    const [items, setItems] = useState<Partial<InventoryItem>[]>([]);
+    const [newItemName, setNewItemName] = useState('');
+    const [newItemQty, setNewItemQty] = useState('1');
+    const [newItemCategory, setNewItemCategory] = useState<ItemCategory>('misc');
+
+    const handleAddItem = () => {
+        if (!newItemName) return;
+
+        setItems(prev => [
+            ...prev,
+            {
+                id: `ITEM-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                name: newItemName,
+                quantity: parseInt(newItemQty) || 1,
+                category: newItemCategory,
+                status: 'incoming',
+                mass: 1.0, // Default
+                volume: 0.1, // Default
+            }
+        ]);
+
+        setNewItemName('');
+        setNewItemQty('1');
+    };
+
+    const handleRemoveItem = (index: number) => {
+        setItems(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const handleSubmit = () => {
+        if (!ctbId) {
+            alert('Please enter a CTB ID');
+            return;
+        }
+
+        const location: Location = {
+            stack: targetStack as any,
+            position: parseInt(targetPosition),
+            layer: 1,
+            path: `${targetStack}-P${targetPosition}-L1`
+        };
+
+        const newCTB: CTB = {
+            id: ctbId,
+            rfidTag: {
+                type: 'RFID',
+                id: `RFID-${ctbId}`,
+                assignedDate: new Date(),
+                batteryLife: 365
+            },
+            size: ctbSize,
+            location,
+            childCTBs: [],
+            items: items.map(i => i.id!),
+            mass: items.reduce((sum, i) => sum + (i.mass || 0), 0) + 1.0, // Items + container
+            volume: ctbSize * 0.1, // Approximation
+            isWaste: false,
+            loadedDate: new Date(),
+        };
+
+        // Add CTB
+        addCTB(newCTB);
+
+        // Add Items
+        items.forEach(item => {
+            addItem({
+                ...item,
+                ctbId: ctbId,
+                location,
+                loadedDate: new Date(),
+                description: 'Incoming shipment item',
+                history: [{
+                    timestamp: new Date(),
+                    action: 'loaded',
+                    notes: 'Initial shipment load'
+                }]
+            } as InventoryItem);
+        });
+
+        // Reset and close
+        setCtbId('');
+        setItems([]);
+        onClose();
+    };
+
+    return (
+        <Modal
+            visible={visible}
+            animationType="slide"
+            presentationStyle="pageSheet"
+            onRequestClose={onClose}
+        >
+            <ThemedView style={styles.container}>
+                <View style={styles.header}>
+                    <ThemedText style={styles.headerTitle}>New Incoming Shipment</ThemedText>
+                    <Pressable onPress={onClose}>
+                        <ThemedText style={styles.closeButton}>Cancel</ThemedText>
+                    </Pressable>
+                </View>
+
+                <ScrollView style={styles.content}>
+                    {/* CTB Details */}
+                    <View style={styles.section}>
+                        <ThemedText style={styles.sectionTitle}>Container Details</ThemedText>
+
+                        <View style={styles.inputGroup}>
+                            <ThemedText style={styles.label}>CTB ID</ThemedText>
+                            <TextInput
+                                style={styles.input}
+                                value={ctbId}
+                                onChangeText={setCtbId}
+                                placeholder="e.g., CTB-NEW-001"
+                                placeholderTextColor="#666"
+                            />
+                        </View>
+
+                        <View style={styles.row}>
+                            <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
+                                <ThemedText style={styles.label}>Stack</ThemedText>
+                                <TextInput
+                                    style={styles.input}
+                                    value={targetStack}
+                                    onChangeText={setTargetStack}
+                                    placeholder="S1"
+                                    placeholderTextColor="#666"
+                                />
+                            </View>
+                            <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
+                                <ThemedText style={styles.label}>Position</ThemedText>
+                                <TextInput
+                                    style={styles.input}
+                                    value={targetPosition}
+                                    onChangeText={setTargetPosition}
+                                    keyboardType="numeric"
+                                    placeholder="1"
+                                    placeholderTextColor="#666"
+                                />
+                            </View>
+                        </View>
+                    </View>
+
+                    {/* Add Items */}
+                    <View style={styles.section}>
+                        <ThemedText style={styles.sectionTitle}>Contents</ThemedText>
+
+                        <View style={styles.addItemForm}>
+                            <TextInput
+                                style={[styles.input, { marginBottom: 8 }]}
+                                value={newItemName}
+                                onChangeText={setNewItemName}
+                                placeholder="Item Name"
+                                placeholderTextColor="#666"
+                            />
+                            <View style={styles.row}>
+                                <TextInput
+                                    style={[styles.input, { flex: 1, marginRight: 8 }]}
+                                    value={newItemQty}
+                                    onChangeText={setNewItemQty}
+                                    keyboardType="numeric"
+                                    placeholder="Qty"
+                                    placeholderTextColor="#666"
+                                />
+                                <Pressable style={styles.addButton} onPress={handleAddItem}>
+                                    <Ionicons name="add" size={24} color="#FFF" />
+                                </Pressable>
+                            </View>
+                        </View>
+
+                        {/* Items List */}
+                        {items.map((item, index) => (
+                            <View key={index} style={styles.itemRow}>
+                                <View style={styles.itemInfo}>
+                                    <ThemedText style={styles.itemName}>{item.name}</ThemedText>
+                                    <ThemedText style={styles.itemMeta}>Qty: {item.quantity}</ThemedText>
+                                </View>
+                                <Pressable onPress={() => handleRemoveItem(index)}>
+                                    <Ionicons name="trash-outline" size={20} color="#FF4444" />
+                                </Pressable>
+                            </View>
+                        ))}
+                    </View>
+                </ScrollView>
+
+                <View style={styles.footer}>
+                    <Pressable style={styles.submitButton} onPress={handleSubmit}>
+                        <ThemedText style={styles.submitButtonText}>Create Shipment</ThemedText>
+                    </Pressable>
+                </View>
+            </ThemedView>
+        </Modal>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: {
+        flex: 1,
+        backgroundColor: '#0A0B0D',
+    },
+    header: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 16,
+        borderBottomWidth: 1,
+        borderBottomColor: '#2A2B2E',
+        backgroundColor: '#111214',
+    },
+    headerTitle: {
+        fontSize: 18,
+        fontWeight: '600',
+    },
+    closeButton: {
+        color: '#0F6FFF',
+        fontSize: 16,
+    },
+    content: {
+        flex: 1,
+        padding: 16,
+    },
+    section: {
+        marginBottom: 24,
+    },
+    sectionTitle: {
+        fontSize: 14,
+        fontWeight: '600',
+        marginBottom: 12,
+        opacity: 0.7,
+        textTransform: 'uppercase',
+    },
+    inputGroup: {
+        marginBottom: 12,
+    },
+    label: {
+        fontSize: 12,
+        marginBottom: 6,
+        opacity: 0.8,
+    },
+    input: {
+        backgroundColor: '#1A1B1E',
+        borderWidth: 1,
+        borderColor: '#2A2B2E',
+        borderRadius: 8,
+        padding: 12,
+        color: '#FFF',
+        fontSize: 16,
+    },
+    row: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    addItemForm: {
+        backgroundColor: '#111214',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 12,
+        borderWidth: 1,
+        borderColor: '#2A2B2E',
+    },
+    addButton: {
+        backgroundColor: '#0F6FFF',
+        width: 44,
+        height: 44,
+        borderRadius: 8,
+        alignItems: 'center',
+        justifyContent: 'center',
+    },
+    itemRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        backgroundColor: '#1A1B1E',
+        padding: 12,
+        borderRadius: 8,
+        marginBottom: 8,
+        borderWidth: 1,
+        borderColor: '#2A2B2E',
+    },
+    itemInfo: {
+        flex: 1,
+    },
+    itemName: {
+        fontSize: 14,
+        fontWeight: '500',
+    },
+    itemMeta: {
+        fontSize: 12,
+        opacity: 0.5,
+    },
+    footer: {
+        padding: 16,
+        borderTopWidth: 1,
+        borderTopColor: '#2A2B2E',
+        backgroundColor: '#111214',
+    },
+    submitButton: {
+        backgroundColor: '#0F6FFF',
+        padding: 16,
+        borderRadius: 12,
+        alignItems: 'center',
+    },
+    submitButtonText: {
+        color: '#FFF',
+        fontSize: 16,
+        fontWeight: '600',
+    },
+});
