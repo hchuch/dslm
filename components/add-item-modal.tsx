@@ -8,15 +8,19 @@ import { ThemedView } from './themed-view';
 type AddItemModalProps = {
     visible: boolean;
     onClose: () => void;
+    onAdd?: (item: InventoryItem) => void;
+    targetCtbId?: string;
 };
 
-export default function AddItemModal({ visible, onClose }: AddItemModalProps) {
+export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: AddItemModalProps) {
     const { addItem } = useInventory();
     const [name, setName] = useState('');
     const [category, setCategory] = useState('misc');
     const [quantity, setQuantity] = useState('1');
+    const [subItems, setSubItems] = useState<string[]>([]);
+    const [subItemName, setSubItemName] = useState('');
 
-    const handleAdd = () => {
+    const handleAdd = (keepOpen = false) => {
         if (!name) return;
 
         const newItem: InventoryItem = {
@@ -30,20 +34,55 @@ export default function AddItemModal({ visible, onClose }: AddItemModalProps) {
                 id: `BC-${Date.now()}`,
                 assignedDate: new Date(),
             },
-            ctbId: 'CTB-USER',
+            ctbId: targetCtbId || 'CTB-USER',
             location: { stack: 'S1', position: 1, layer: 1, path: 'S1-P1-L1' },
             mass: 1.0,
             volume: 0.1,
             quantity: parseInt(quantity) || 1,
             loadedDate: new Date(),
             criticality: 'low',
+
             history: [],
+            subItems: subItems.map((subName, index) => ({
+                id: `SUB-${Date.now()}-${index}`,
+                name: subName,
+                description: 'Nested item',
+                category: 'misc',
+                status: 'incoming',
+                ctbId: targetCtbId || 'CTB-USER',
+                location: { stack: 'S1', position: 1, layer: 1, path: 'S1-P1-L1' },
+                mass: 0.1,
+                volume: 0.01,
+                quantity: 1,
+                loadedDate: new Date(),
+                criticality: 'low',
+                history: [],
+            })),
         };
 
-        addItem(newItem);
+        if (onAdd) {
+            onAdd(newItem);
+        } else {
+            addItem(newItem);
+        }
         setName('');
         setQuantity('1');
-        onClose();
+        setSubItems([]);
+        setSubItemName('');
+
+        if (!keepOpen) {
+            onClose();
+        }
+    };
+
+    const handleAddSubItem = () => {
+        if (!subItemName.trim()) return;
+        setSubItems([...subItems, subItemName.trim()]);
+        setSubItemName('');
+    };
+
+    const removeSubItem = (index: number) => {
+        setSubItems(subItems.filter((_, i) => i !== index));
     };
 
     return (
@@ -97,14 +136,44 @@ export default function AddItemModal({ visible, onClose }: AddItemModalProps) {
                             value={quantity}
                             onChangeText={setQuantity}
                         />
+
+                        <ThemedText style={styles.label}>Sub-Items (Nesting)</ThemedText>
+                        <View style={styles.subItemInputContainer}>
+                            <TextInput
+                                style={[styles.input, { flex: 1, marginBottom: 0 }]}
+                                placeholder="Add sub-item name"
+                                placeholderTextColor="#666"
+                                value={subItemName}
+                                onChangeText={setSubItemName}
+                            />
+                            <Pressable style={styles.addSubItemBtn} onPress={handleAddSubItem}>
+                                <ThemedText style={styles.addSubItemText}>+</ThemedText>
+                            </Pressable>
+                        </View>
+
+                        {subItems.length > 0 && (
+                            <View style={styles.subItemsList}>
+                                {subItems.map((item, index) => (
+                                    <View key={index} style={styles.subItemRow}>
+                                        <ThemedText style={styles.subItemText}>• {item}</ThemedText>
+                                        <Pressable onPress={() => removeSubItem(index)}>
+                                            <ThemedText style={styles.removeSubItemText}>✕</ThemedText>
+                                        </Pressable>
+                                    </View>
+                                ))}
+                            </View>
+                        )}
                     </ScrollView>
 
                     <View style={styles.buttonContainer}>
                         <Pressable style={[styles.button, styles.buttonCancel]} onPress={onClose}>
                             <ThemedText style={styles.textStyle}>Cancel</ThemedText>
                         </Pressable>
-                        <Pressable style={[styles.button, styles.buttonAdd]} onPress={handleAdd}>
-                            <ThemedText style={styles.textStyle}>Add Item</ThemedText>
+                        <Pressable style={[styles.button, styles.buttonNext]} onPress={() => handleAdd(true)}>
+                            <ThemedText style={styles.textStyle}>Add & Next</ThemedText>
+                        </Pressable>
+                        <Pressable style={[styles.button, styles.buttonAdd]} onPress={() => handleAdd(false)}>
+                            <ThemedText style={styles.textStyle}>Done</ThemedText>
                         </Pressable>
                     </View>
                 </ThemedView>
@@ -199,12 +268,55 @@ const styles = StyleSheet.create({
     buttonCancel: {
         backgroundColor: '#3A3A3C',
     },
+    buttonNext: {
+        backgroundColor: '#0F6FFF',
+        marginHorizontal: 4,
+    },
     buttonAdd: {
-        backgroundColor: '#0B3D91',
+        backgroundColor: '#10B981',
     },
     textStyle: {
         color: 'white',
         fontWeight: 'bold',
         textAlign: 'center',
+    },
+    subItemInputContainer: {
+        flexDirection: 'row',
+        gap: 8,
+        marginBottom: 12,
+    },
+    addSubItemBtn: {
+        backgroundColor: '#2C2C2E',
+        width: 44,
+        borderRadius: 10,
+        alignItems: 'center',
+        justifyContent: 'center',
+        borderWidth: 1,
+        borderColor: '#3A3A3C',
+    },
+    addSubItemText: {
+        fontSize: 24,
+        color: '#0F6FFF',
+        marginTop: -2,
+    },
+    subItemsList: {
+        backgroundColor: '#111214',
+        borderRadius: 10,
+        padding: 12,
+        marginBottom: 20,
+    },
+    subItemRow: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        paddingVertical: 4,
+    },
+    subItemText: {
+        fontSize: 14,
+        color: '#CCC',
+    },
+    removeSubItemText: {
+        color: '#FF453A',
+        fontSize: 14,
+        fontWeight: 'bold',
     },
 });

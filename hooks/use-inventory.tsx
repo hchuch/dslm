@@ -45,11 +45,12 @@ type InventoryContextValue = {
   // Actions
   addItem: (item: InventoryItem) => void;
   addCTB: (ctb: CTB) => void;
-  deliverItem: (itemId: string, userId?: string) => void;
-  moveItem: (itemId: string, newLocation: Location, userId?: string) => void;
-  consumeItem: (itemId: string, userId?: string) => void;
-  markAsWaste: (itemId: string, userId?: string) => void;
-  relocateCTB: (ctbId: string, newLocation: Location, userId?: string) => void;
+  addShipment: (ctbs: CTB[], items: InventoryItem[]) => void;
+  deliverItem: (itemId: string, userId?: string, timeTaken?: number) => void;
+  moveItem: (itemId: string, newLocation: Location, userId?: string, timeTaken?: number) => void;
+  consumeItem: (itemId: string, userId?: string, timeTaken?: number) => void;
+  markAsWaste: (itemId: string, userId?: string, timeTaken?: number) => void;
+  relocateCTB: (ctbId: string, newLocation: Location, userId?: string, timeTaken?: number) => void;
 
   // CTB operations
   getChildCTBs: (parentCTBId: string) => CTB[];
@@ -391,6 +392,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
   // Actions
   const addItem = useCallback((item: InventoryItem) => {
+    console.log(`[Inventory] Adding item: ${item.name} (${item.id}) to ${item.ctbId}`);
     setInventoryData((prev) => ({
       ...prev,
       items: [item, ...prev.items],
@@ -398,13 +400,24 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const addCTB = useCallback((ctb: CTB) => {
+    console.log(`[Inventory] Adding CTB: ${ctb.id} (Size: ${ctb.size})`);
     setInventoryData((prev) => ({
       ...prev,
       ctbs: [ctb, ...prev.ctbs],
     }));
   }, []);
 
-  const deliverItem = useCallback((itemId: string, userId?: string) => {
+  const addShipment = useCallback((newCtbs: CTB[], newItems: InventoryItem[]) => {
+    console.log(`[Inventory] Adding Shipment: ${newCtbs.length} CTBs, ${newItems.length} Items`);
+    setInventoryData((prev) => ({
+      ...prev,
+      ctbs: [...newCtbs, ...prev.ctbs],
+      items: [...newItems, ...prev.items],
+    }));
+  }, []);
+
+  const deliverItem = useCallback((itemId: string, userId?: string, timeTaken?: number) => {
+    console.log(`[Inventory] Delivering item: ${itemId}`);
     setInventoryData((prev) => ({
       ...prev,
       items: prev.items.map((item) =>
@@ -420,6 +433,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
                 action: 'delivered',
                 userId,
                 notes: 'Item delivered to Gateway and moved to stock',
+                timeTaken,
               },
             ],
           }
@@ -428,7 +442,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const moveItem = useCallback((itemId: string, newLocation: Location, userId?: string) => {
+  const moveItem = useCallback((itemId: string, newLocation: Location, userId?: string, timeTaken?: number) => {
+    console.log(`[Inventory] Moving item: ${itemId} to ${newLocation.path}`);
     setInventoryData((prev) => ({
       ...prev,
       items: prev.items.map((item) =>
@@ -445,6 +460,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
                 fromLocation: item.location,
                 toLocation: newLocation,
                 notes: `Moved from ${item.location.path} to ${newLocation.path}`,
+                timeTaken,
               },
             ],
           }
@@ -453,7 +469,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const consumeItem = useCallback((itemId: string, userId?: string) => {
+  const consumeItem = useCallback((itemId: string, userId?: string, timeTaken?: number) => {
+    console.log(`[Inventory] Consuming item: ${itemId}`);
     setInventoryData((prev) => ({
       ...prev,
       items: prev.items.map((item) =>
@@ -469,6 +486,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
                 action: 'consumed',
                 userId,
                 notes: 'Item consumed',
+                timeTaken,
               },
             ],
           }
@@ -477,7 +495,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     }));
   }, []);
 
-  const markAsWaste = useCallback((itemId: string, userId?: string) => {
+  const markAsWaste = useCallback((itemId: string, userId?: string, timeTaken?: number) => {
+    console.log(`[Inventory] Marking item as waste: ${itemId}`);
     const item = inventoryData.items.find((i) => i.id === itemId);
     if (!item) return;
 
@@ -506,6 +525,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
                 action: 'marked-waste',
                 userId,
                 notes: 'Marked for waste disposal',
+                timeTaken,
               },
             ],
           }
@@ -514,7 +534,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     }));
   }, [inventoryData.items]);
 
-  const relocateCTB = useCallback((ctbId: string, newLocation: Location, userId?: string) => {
+  const relocateCTB = useCallback((ctbId: string, newLocation: Location, userId?: string, timeTaken?: number) => {
+    console.log(`[Inventory] Relocating CTB: ${ctbId} to ${newLocation.path}`);
     setInventoryData((prev) => ({
       ...prev,
       ctbs: prev.ctbs.map((ctb) =>
@@ -541,6 +562,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
                 fromLocation: item.location,
                 toLocation: newLocation,
                 notes: `CTB ${ctbId} relocated`,
+                timeTaken,
               },
             ],
           }
@@ -601,6 +623,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
   }, [inventoryData.items, inventoryData.ctbs]);
 
   const receiveCTB = useCallback((ctbId: string, userId?: string) => {
+    console.log(`[Inventory] Receiving CTB: ${ctbId}`);
     // Recursively find all items in this CTB and its children
     const findAllItemsInCTB = (currentCtbId: string): string[] => {
       const directItems = inventoryData.items
@@ -615,6 +638,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     };
 
     const allItemIds = findAllItemsInCTB(ctbId);
+    console.log(`[Inventory] Found ${allItemIds.length} items in CTB ${ctbId} to receive`);
 
     setInventoryData((prev) => ({
       ...prev,
@@ -707,6 +731,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       // Actions
       addItem,
       addCTB,
+      addShipment,
       deliverItem,
       moveItem,
       consumeItem,

@@ -1,18 +1,22 @@
 import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
+import { CTBInspectorModal } from '../../components/ctb-inspector-modal';
 import { ModuleVisualization } from '../../components/module-visualization';
 import ParallaxScrollView from '../../components/parallax-scroll-view';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { useInventory } from '../../hooks/use-inventory';
-import type { StackId } from '../../types/dslm';
+import { useNFC } from '../../hooks/use-nfc';
+import type { CTB, StackId } from '../../types/dslm';
 
 export default function ModuleScreen() {
-  const { stacks, ctbs, getItemsInCTB, getStackUtilization } = useInventory();
+  const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById } = useInventory();
   const [selectedStack, setSelectedStack] = useState<StackId | undefined>();
+  const [scannedCTB, setScannedCTB] = useState<CTB | null>(null);
+  const { scanTag, isScanning, isSupported } = useNFC();
   const insets = useSafeAreaInsets();
   const headerHeight = 72 + insets.top;
 
@@ -23,6 +27,37 @@ export default function ModuleScreen() {
       utilization: getStackUtilization(selectedStack),
     }
     : null;
+
+  const handleScan = async () => {
+    const tag = await scanTag();
+    if (tag) {
+      // Try to find CTB or Item by ID (assuming tag ID matches or is mapped)
+      // In a real scenario, we'd lookup the tag ID in a DB.
+      // Here we assume tag.id might be part of the ID or we search.
+      // For prototype, let's assume the tag payload IS the ID.
+
+      const id = tag.payload || tag.id;
+      const ctb = findCTBById(id);
+      if (ctb) {
+        setScannedCTB(ctb);
+        return;
+      }
+
+      const item = findItemById(id);
+      if (item) {
+        const parentCTB = findCTBById(item.ctbId);
+        if (parentCTB) {
+          setScannedCTB(parentCTB);
+          Alert.alert('Item Found', `Item "${item.name}" is in CTB ${parentCTB.id}`);
+        } else {
+          Alert.alert('Item Found', `Item "${item.name}" found, but parent CTB is unknown.`);
+        }
+        return;
+      }
+
+      Alert.alert('Unknown Tag', `Tag ID: ${id} not found in inventory.`);
+    }
+  };
 
   return (
     <>
@@ -49,7 +84,30 @@ export default function ModuleScreen() {
             Tap on any stack above to see its CTBs and contents
           </ThemedText>
         </ThemedView>
-      </ParallaxScrollView>
+
+      </ParallaxScrollView >
+
+      {/* NFC Scan Button */}
+      {
+        isSupported && (
+          <Pressable
+            style={[styles.fab, isScanning && styles.fabScanning]}
+            onPress={handleScan}
+            disabled={isScanning}
+          >
+            <ThemedText style={styles.fabIcon}>
+              {isScanning ? '...' : '📡'}
+            </ThemedText>
+          </Pressable>
+        )
+      }
+
+      {/* CTB Inspector Modal (for scanned items) */}
+      <CTBInspectorModal
+        visible={!!scannedCTB}
+        ctb={scannedCTB}
+        onClose={() => setScannedCTB(null)}
+      />
 
       {/* Stack Details Modal */}
       <Modal
@@ -78,7 +136,7 @@ export default function ModuleScreen() {
                     <ThemedText style={styles.statLabel}>CTBs</ThemedText>
                   </View>
                   <View style={styles.statCard}>
-                    <ThemedText style={styles.statValue}>{stackDetails.utilization}%</ThemedText>
+                    <ThemedText style={styles.statValue}>{stackDetails.utilization.toFixed(0)}%</ThemedText>
                     <ThemedText style={styles.statLabel}>Utilized</ThemedText>
                   </View>
                   <View style={styles.statCard}>
@@ -173,7 +231,7 @@ export default function ModuleScreen() {
 const styles = StyleSheet.create({
   headerBar: {
     height: 72,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     justifyContent: 'center',
   },
   headerTitle: {
@@ -336,5 +394,28 @@ const styles = StyleSheet.create({
     fontSize: 13,
     opacity: 0.5,
     textAlign: 'center',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 30,
+    right: 30,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: '#0F6FFF',
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    zIndex: 100,
+  },
+  fabScanning: {
+    backgroundColor: '#EAB308',
+  },
+  fabIcon: {
+    fontSize: 24,
   },
 });

@@ -5,7 +5,7 @@
 export type CTBSize = 0.5 | 1.0 | 2.0 | 4.0 | 6.0 | 8.0 | 10.0;
 
 // Stack identifiers in DSLM module
-export type StackId = 'S1' | 'S2' | 'S3' | 'C1' | 'C2';
+export type StackId = 'S1' | 'S2' | 'S3' | 'C1' | 'C2' | 'INCOMING';
 
 // Item categories based on DSLM requirements
 export type ItemCategory =
@@ -134,23 +134,27 @@ export interface InventoryItem {
 
   // History
   history: ItemHistoryEntry[];
+
+  // Nesting
+  subItems?: InventoryItem[];
 }
 
 // History entry for item tracking
 export interface ItemHistoryEntry {
   timestamp: Date;
   action:
-    | 'loaded'
-    | 'delivered'
-    | 'moved'
-    | 'consumed'
-    | 'inspected'
-    | 'relocated'
-    | 'marked-waste';
+  | 'loaded'
+  | 'delivered'
+  | 'moved'
+  | 'consumed'
+  | 'inspected'
+  | 'relocated'
+  | 'marked-waste';
   userId?: string; // Astronaut or technician ID
   fromLocation?: Location;
   toLocation?: Location;
   notes?: string;
+  timeTaken?: number; // seconds
 }
 
 // Nesting rules for CTBs (Russian nesting dolls)

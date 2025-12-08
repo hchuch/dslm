@@ -1,12 +1,13 @@
 import { Tabs } from 'expo-router';
 import React from 'react';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { HapticTab } from '../../components/haptic-tab';
+import { useAuth } from '../../contexts/auth-context';
 import { useColorScheme } from '../../hooks/use-color-scheme';
 import { InventoryProvider } from '../../hooks/use-inventory';
 export default function TabLayout() {
   const colorScheme = useColorScheme();
+  const { user } = useAuth();
 
   return (
     <InventoryProvider>
@@ -49,6 +50,15 @@ export default function TabLayout() {
             tabBarIcon: ({ color }) => (
               <IconSymbol size={28} name="checkmark.seal.fill" color={color} />
             ),
+          }}
+        />
+
+        <Tabs.Screen
+          name="shipment"
+          options={{
+            title: 'Shipment',
+            href: user?.role === 'ground-crew' ? '/shipment' : null,
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
           }}
         />
       </Tabs>

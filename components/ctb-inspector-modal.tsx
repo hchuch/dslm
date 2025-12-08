@@ -123,25 +123,38 @@ export function CTBInspectorModal({ visible, ctb, onClose, onReceive }: Props) {
                             <ThemedText style={styles.emptyText}>No loose items in this CTB</ThemedText>
                         ) : (
                             items.map((item) => (
-                                <ThemedView key={item.id} style={styles.itemRow}>
-                                    <View style={styles.itemIcon}>
-                                        <Ionicons name="cube" size={20} color="#888" />
-                                    </View>
-                                    <View style={styles.itemInfo}>
-                                        <ThemedText style={styles.itemName}>{item.name}</ThemedText>
-                                        <ThemedText style={styles.itemMeta}>
-                                            Qty: {item.quantity} | {item.mass}kg
-                                        </ThemedText>
-                                    </View>
-                                    <View style={[
-                                        styles.statusBadge,
-                                        item.status === 'incoming' ? styles.statusIncoming : styles.statusStock
-                                    ]}>
-                                        <ThemedText style={styles.statusText}>
-                                            {item.status.toUpperCase()}
-                                        </ThemedText>
-                                    </View>
-                                </ThemedView>
+                                <View key={item.id}>
+                                    <ThemedView style={styles.itemRow}>
+                                        <View style={styles.itemIcon}>
+                                            <Ionicons name="cube" size={20} color="#888" />
+                                        </View>
+                                        <View style={styles.itemInfo}>
+                                            <ThemedText style={styles.itemName}>{item.name}</ThemedText>
+                                            <ThemedText style={styles.itemMeta}>
+                                                Qty: {item.quantity} | {item.mass}kg
+                                            </ThemedText>
+                                        </View>
+                                        <View style={[
+                                            styles.statusBadge,
+                                            item.status === 'incoming' ? styles.statusIncoming : styles.statusStock
+                                        ]}>
+                                            <ThemedText style={styles.statusText}>
+                                                {item.status.toUpperCase()}
+                                            </ThemedText>
+                                        </View>
+                                    </ThemedView>
+                                    {item.subItems && item.subItems.length > 0 && (
+                                        <View style={styles.subItemsContainer}>
+                                            {item.subItems.map((subItem, idx) => (
+                                                <View key={subItem.id || idx} style={styles.subItemRow}>
+                                                    <Ionicons name="return-down-forward" size={16} color="#666" style={{ marginRight: 8 }} />
+                                                    <ThemedText style={styles.subItemName}>{subItem.name}</ThemedText>
+                                                    <ThemedText style={styles.subItemMeta}>Qty: {subItem.quantity}</ThemedText>
+                                                </View>
+                                            ))}
+                                        </View>
+                                    )}
+                                </View>
                             ))
                         )}
                     </View>
@@ -319,5 +332,26 @@ const styles = StyleSheet.create({
         fontWeight: '700',
         color: '#FFFFFF',
         opacity: 0.9,
+    },
+    subItemsContainer: {
+        marginLeft: 48,
+        marginBottom: 12,
+        paddingLeft: 12,
+        borderLeftWidth: 1,
+        borderLeftColor: '#2A2B2E',
+    },
+    subItemRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    subItemName: {
+        fontSize: 13,
+        color: '#CCC',
+        marginRight: 8,
+    },
+    subItemMeta: {
+        fontSize: 11,
+        color: '#666',
     },
 });

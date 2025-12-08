@@ -1,8 +1,8 @@
 import React from 'react';
-import { View, StyleSheet, Pressable } from 'react-native';
+import { Pressable, StyleSheet, View } from 'react-native';
+import type { CTB, StackConfiguration, StackId } from '../types/dslm';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
-import type { StackId, StackConfiguration, CTB } from '../types/dslm';
 
 interface ModuleVisualizationProps {
   stacks: StackConfiguration[];
@@ -28,13 +28,23 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
     return '#E74C3C';
   };
 
+  const getCTBColor = (size: number) => {
+    switch (size) {
+      case 0.5: return '#3498DB'; // Blue
+      case 1.0: return '#2ECC71'; // Green
+      case 2.0: return '#F1C40F'; // Yellow
+      case 4.0: return '#E67E22'; // Orange
+      default: return '#9B59B6'; // Purple (Large)
+    }
+  };
+
   const getCTBCountInStack = (stackId: StackId) => {
     return ctbs.filter(ctb => ctb.location.stack === stackId).length;
   };
 
   return (
     <ThemedView style={styles.container}>
-      <ThemedText style={styles.title}>🏗️ DSLM Module Layout</ThemedText>
+      <ThemedText style={styles.title}>DSLM Module Layout</ThemedText>
       <ThemedText style={styles.subtitle}>4-Meter Cylinder • 5 Storage Stacks • 52m³ Capacity</ThemedText>
 
       <View style={styles.moduleContainer}>
@@ -62,17 +72,37 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
                 {/* Visualization of positions */}
                 <View style={styles.positionsGrid}>
                   {Array.from({ length: 16 }).map((_, i) => {
-                    const hasContent = ctbs.some(
-                      ctb => ctb.location.stack === stackId && ctb.location.position === i + 1
-                    );
+                    const position = i + 1;
+
                     return (
-                      <View
-                        key={i}
-                        style={[
-                          styles.positionCell,
-                          hasContent && styles.positionCellFilled,
-                        ]}
-                      />
+                      <View key={i} style={styles.positionCellContainer}>
+                        {/* Render 4 layers as strips */}
+                        {Array.from({ length: 4 }).map((_, layerIndex) => {
+                          const layer = layerIndex + 1;
+
+                          const occupyingCTB = ctbs.find(ctb => {
+                            if (ctb.location.stack !== stackId) return false;
+                            if (ctb.location.layer !== layer) return false;
+
+                            const startPos = ctb.location.position;
+                            const slotsNeeded = Math.ceil(ctb.size);
+                            return position >= startPos && position < startPos + slotsNeeded;
+                          });
+
+                          return (
+                            <View
+                              key={layer}
+                              style={[
+                                styles.layerStrip,
+                                occupyingCTB && {
+                                  backgroundColor: getCTBColor(occupyingCTB.size),
+                                  opacity: 1 - (layerIndex * 0.15) // Slight dimming for deeper layers
+                                }
+                              ]}
+                            />
+                          );
+                        })}
+                      </View>
                     );
                   })}
                 </View>
@@ -164,16 +194,18 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
       <View style={styles.legend}>
         <ThemedText style={styles.legendTitle}>Legend</ThemedText>
         <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: '#2ECC71' }]} />
-          <ThemedText style={styles.legendText}>{'<'}50% capacity</ThemedText>
+          <View style={[styles.legendDot, { backgroundColor: '#3498DB' }]} />
+          <ThemedText style={styles.legendText}>0.5 CTB</ThemedText>
+          <View style={[styles.legendDot, { backgroundColor: '#2ECC71', marginLeft: 12 }]} />
+          <ThemedText style={styles.legendText}>1.0 CTB</ThemedText>
+          <View style={[styles.legendDot, { backgroundColor: '#F1C40F', marginLeft: 12 }]} />
+          <ThemedText style={styles.legendText}>2.0 CTB</ThemedText>
         </View>
         <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: '#FFB86B' }]} />
-          <ThemedText style={styles.legendText}>50-80% capacity</ThemedText>
-        </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: '#E74C3C' }]} />
-          <ThemedText style={styles.legendText}>{'>'}80% capacity</ThemedText>
+          <View style={[styles.legendDot, { backgroundColor: '#E67E22' }]} />
+          <ThemedText style={styles.legendText}>4.0 CTB</ThemedText>
+          <View style={[styles.legendDot, { backgroundColor: '#9B59B6', marginLeft: 12 }]} />
+          <ThemedText style={styles.legendText}>Large CTB</ThemedText>
         </View>
       </View>
     </ThemedView>
@@ -182,7 +214,7 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
 
 const styles = StyleSheet.create({
   container: {
-    padding: 16,
+    padding: 0,
   },
   title: {
     fontSize: 22,
@@ -256,14 +288,21 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     justifyContent: 'center',
   },
-  positionCell: {
-    width: 20,
-    height: 20,
+  positionCellContainer: {
+    width: 24,
+    height: 24,
     backgroundColor: '#2A2B2E',
     borderRadius: 3,
+    overflow: 'hidden',
+    flexDirection: 'column',
+    justifyContent: 'space-between',
+    padding: 1,
   },
-  positionCellFilled: {
-    backgroundColor: '#0F6FFF',
+  layerStrip: {
+    flex: 1,
+    marginBottom: 1,
+    borderRadius: 1,
+    backgroundColor: 'transparent',
   },
   flexPositionsContainer: {
     height: 100,

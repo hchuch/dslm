@@ -1,6 +1,6 @@
 import type { PropsWithChildren, ReactElement } from 'react';
 import React from 'react';
-import { Platform, ScrollView, StyleSheet, View } from 'react-native';
+import { ScrollView, StyleSheet, View } from 'react-native';
 
 import { useColorScheme } from '../hooks/use-color-scheme';
 import { useThemeColor } from '../hooks/use-theme-color';
@@ -47,8 +47,8 @@ const styles = StyleSheet.create({
   },
   content: {
     flex: 1,
-    padding: 32,
-    paddingTop: Platform.OS === 'ios' ? 60 : 32,
+    padding: 12,
+    paddingTop: 12,
     gap: 16,
     overflow: 'hidden',
   },

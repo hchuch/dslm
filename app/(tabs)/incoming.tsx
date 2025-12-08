@@ -73,7 +73,7 @@ export default function IncomingScreen() {
                 <View style={styles.iconContainer}>
                   <Ionicons name="cube" size={40} color="#0F6FFF" />
                   <View style={styles.sizeBadge}>
-                    <ThemedText style={styles.sizeText}>{ctb.size}</ThemedText>
+                    <ThemedText style={styles.sizeText}>{ctb.size * 2}</ThemedText>
                   </View>
                 </View>
 
@@ -96,8 +96,21 @@ export default function IncomingScreen() {
                 </View>
 
                 <View style={styles.actionRow}>
-                  <ThemedText style={styles.tapText}>Tap to inspect</ThemedText>
-                  <Ionicons name="chevron-forward" size={16} color="#666" />
+                  <Pressable
+                    style={({ pressed }) => [styles.receiveButton, pressed && styles.receiveButtonPressed]}
+                    onPress={(e) => {
+                      e.stopPropagation();
+                      handleReceiveCTB(ctb.id);
+                    }}
+                  >
+                    <Ionicons name="download-outline" size={16} color="#FFF" style={{ marginRight: 6 }} />
+                    <ThemedText style={styles.receiveButtonText}>Receive</ThemedText>
+                  </Pressable>
+
+                  <View style={styles.inspectHint}>
+                    <ThemedText style={styles.tapText}>Inspect</ThemedText>
+                    <Ionicons name="chevron-forward" size={14} color="#666" />
+                  </View>
                 </View>
               </Pressable>
             ))}
@@ -131,7 +144,7 @@ export default function IncomingScreen() {
 const styles = StyleSheet.create({
   headerBar: {
     height: 100,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
     justifyContent: 'center',
     backgroundColor: 'transparent',
   },
@@ -258,5 +271,26 @@ const styles = StyleSheet.create({
   fabPressed: {
     opacity: 0.8,
     transform: [{ scale: 0.95 }],
+  },
+  receiveButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F6FFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  receiveButtonPressed: {
+    opacity: 0.8,
+  },
+  receiveButtonText: {
+    color: '#FFF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  inspectHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    opacity: 0.7,
   },
 });

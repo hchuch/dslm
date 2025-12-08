@@ -1,11 +1,16 @@
 import { Image } from 'expo-image';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { Ionicons } from '@expo/vector-icons';
+import AddItemModal from '../../components/add-item-modal';
+import ItemDetailModal from '../../components/item-detail-modal';
 import ParallaxScrollView from '../../components/parallax-scroll-view';
 import { Colors } from '../../constants/colors';
+import { useAuth } from '../../contexts/auth-context';
 import { useInventory } from '../../hooks/use-inventory';
+import { useNFC } from '../../hooks/use-nfc';
 import type { InventoryItem } from '../../types/dslm';
 
 export default function HomeScreen() {
@@ -15,9 +20,21 @@ export default function HomeScreen() {
     getCriticalItems,
     getExpiringItems,
   } = useInventory();
+  const { user, login } = useAuth();
+  const { scanTag, isSupported } = useNFC();
 
   const [searchQuery, setSearchQuery] = useState('');
   const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['all']));
+  const [isAddItemVisible, setIsAddItemVisible] = useState(false);
+  const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+
+  const handleScan = async () => {
+    const tag = await scanTag();
+    if (tag) {
+      setSearchQuery(tag.id);
+      Alert.alert('Item Scanned', `Filtered for tag: ${tag.id}`);
+    }
+  };
 
   const categories = useMemo(
     () => [
@@ -35,16 +52,28 @@ export default function HomeScreen() {
     []
   );
 
+  const [activeFilter, setActiveFilter] = useState<'all' | 'critical' | 'expiring'>('all');
+
   const searchFilteredItems = useMemo(() => {
-    if (!searchQuery) return inventoryItems;
+    let items = inventoryItems;
+
+    // Apply Status Filter
+    if (activeFilter === 'critical') {
+      items = getCriticalItems();
+    } else if (activeFilter === 'expiring') {
+      items = getExpiringItems(30);
+    }
+
+    if (!searchQuery) return items;
+
     const query = searchQuery.toLowerCase();
-    return inventoryItems.filter(
+    return items.filter(
       item =>
         item.name.toLowerCase().includes(query) ||
         item.description.toLowerCase().includes(query) ||
         item.location.path.toLowerCase().includes(query)
     );
-  }, [inventoryItems, searchQuery]);
+  }, [inventoryItems, searchQuery, activeFilter, getCriticalItems, getExpiringItems]);
 
   const categorizedItems = useMemo(() => {
     const grouped: Record<string, { incoming: InventoryItem[]; stock: InventoryItem[] }> = {};
@@ -83,6 +112,19 @@ export default function HomeScreen() {
     return { totalItems, totalCTBs, criticalItems, expiringItems };
   }, [inventoryItems, ctbs, getCriticalItems, getExpiringItems]);
 
+  const recentActivity = useMemo(() => {
+    const allHistory = inventoryItems.flatMap(item =>
+      item.history.map(entry => ({
+        ...entry,
+        itemName: item.name,
+        itemId: item.id
+      }))
+    );
+    return allHistory
+      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
+      .slice(0, 5);
+  }, [inventoryItems]);
+
   const toggleCategory = (categoryId: string) => {
     setExpandedCategories(prev => {
       const next = new Set(prev);
@@ -109,7 +151,7 @@ export default function HomeScreen() {
 
   const renderItemTile = (item: InventoryItem, showDeliverButton: boolean = false) => (
     <View key={item.id} style={styles.tileWrap}>
-      <Pressable onPress={() => { /* placeholder */ }}>
+      <Pressable onPress={() => setSelectedItem(item)}>
         <View style={styles.tile}>
           <Image
             source={{
@@ -236,37 +278,100 @@ export default function HomeScreen() {
         headerBackgroundColor={{ light: Colors.surface, dark: Colors.surface }}
         headerImage={
           <View style={styles.headerBar}>
-            <Text style={styles.headerTitle}>
-              DSLM Inventory
-            </Text>
-            <Text style={styles.headerSubtitle}>
-              Deep Space Logistics Module
-            </Text>
+            <View>
+              <Text style={styles.headerTitle}>
+                DSLM Inventory
+              </Text>
+              <Text style={styles.headerSubtitle}>
+                Deep Space Logistics Module
+              </Text>
+            </View>
+            <View style={styles.headerButtons}>
+              {isSupported && (
+                <Pressable style={styles.iconButton} onPress={handleScan}>
+                  <Ionicons name="scan" size={24} color={Colors.blue} />
+                </Pressable>
+              )}
+              <Pressable
+                style={styles.profileButton}
+                onPress={() => {
+                  Alert.alert(
+                    'Switch Role',
+                    `Current: ${user?.name} (${user?.role})`,
+                    [
+                      { text: 'Ground Crew', onPress: () => login('ground-crew') },
+                      { text: 'Astronaut', onPress: () => login('astronaut') },
+                      { text: 'Cancel', style: 'cancel' }
+                    ]
+                  );
+                }}
+              >
+                <Image
+                  source={{ uri: 'https://ui-avatars.com/api/?name=' + (user?.name || 'User') + '&background=0D8ABC&color=fff' }}
+                  style={styles.profileImage}
+                />
+              </Pressable>
+            </View>
           </View>
         }>
 
         {/* Stats */}
         <View style={styles.statsRow}>
-          <View style={styles.statCard}>
+          <Pressable
+            style={[styles.statCard, activeFilter === 'all' && styles.statCardActive]}
+            onPress={() => setActiveFilter('all')}
+          >
             <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.totalItems}</Text>
-            <Text style={styles.statLabel}>Total Items</Text>
-          </View>
+            <Text style={[styles.statLabel, activeFilter === 'all' && styles.statLabelActive]}>Total Items</Text>
+          </Pressable>
           <View style={styles.statCard}>
             <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.totalCTBs}</Text>
             <Text style={styles.statLabel}>CTBs</Text>
           </View>
-          <View style={styles.statCard}>
+          <Pressable
+            style={[styles.statCard, activeFilter === 'critical' && styles.statCardActive]}
+            onPress={() => setActiveFilter(activeFilter === 'critical' ? 'all' : 'critical')}
+          >
             <Text style={[styles.statValue, { color: Colors.red }]}>{stats.criticalItems}</Text>
-            <Text style={styles.statLabel}>Critical</Text>
-          </View>
-          <View style={styles.statCard}>
+            <Text style={[styles.statLabel, activeFilter === 'critical' && styles.statLabelActive]}>Critical</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.statCard, activeFilter === 'expiring' && styles.statCardActive]}
+            onPress={() => setActiveFilter(activeFilter === 'expiring' ? 'all' : 'expiring')}
+          >
             <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.expiringItems}</Text>
-            <Text style={styles.statLabel}>Expiring</Text>
-          </View>
+            <Text style={[styles.statLabel, activeFilter === 'expiring' && styles.statLabelActive]}>Expiring</Text>
+          </Pressable>
         </View>
 
+        {/* Recent Activity */}
+        < View style={styles.sectionContainer} >
+          <Text style={styles.sectionTitle}>Recent Activity</Text>
+          <View style={styles.activityList}>
+            {recentActivity.map((activity, index) => (
+              <View key={`${activity.itemId}-${index}`} style={styles.activityCard}>
+                <View style={styles.activityHeader}>
+                  <Text style={styles.activityAction}>{activity.action.toUpperCase()}</Text>
+                  <Text style={styles.activityTime}>
+                    {activity.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                </View>
+                <Text style={styles.activityItemName} numberOfLines={1}>{activity.itemName}</Text>
+                {activity.timeTaken && (
+                  <View style={styles.timeTakenBadge}>
+                    <Text style={styles.timeTakenText}>⏱ {activity.timeTaken}s</Text>
+                  </View>
+                )}
+              </View>
+            ))}
+            {recentActivity.length === 0 && (
+              <Text style={styles.emptyText}>No recent activity</Text>
+            )}
+          </View>
+        </View >
+
         {/* Search */}
-        <View style={styles.searchContainer}>
+        < View style={styles.searchContainer} >
           <TextInput
             style={styles.searchInput}
             placeholder="Search items, CTBs, locations..."
@@ -274,26 +379,69 @@ export default function HomeScreen() {
             value={searchQuery}
             onChangeText={setSearchQuery}
           />
-        </View>
+        </View >
 
         {/* Categories */}
-        <View style={styles.contentArea}>
+        < View style={styles.contentArea} >
           <ScrollView showsVerticalScrollIndicator={false}>
             {categories.map(category => renderCategory(category))}
           </ScrollView>
-        </View>
-      </ParallaxScrollView>
-    </SafeAreaView>
+        </View >
+      </ParallaxScrollView >
+
+      {/* Add Item FAB */}
+      <Pressable
+        style={styles.fab}
+        onPress={() => setIsAddItemVisible(true)}
+      >
+        <Ionicons name="add" size={32} color="#FFFFFF" />
+      </Pressable>
+
+      <AddItemModal
+        visible={isAddItemVisible}
+        onClose={() => setIsAddItemVisible(false)}
+      />
+
+      <ItemDetailModal
+        visible={!!selectedItem}
+        item={selectedItem}
+        onClose={() => setSelectedItem(null)}
+      />
+    </SafeAreaView >
   );
 }
 
 const styles = StyleSheet.create({
   headerBar: {
     height: 100,
-    paddingHorizontal: 24,
-    justifyContent: 'flex-end',
+    paddingHorizontal: 12,
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
     paddingBottom: 16,
     backgroundColor: Colors.background,
+  },
+  headerButtons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  iconButton: {
+    padding: 8,
+    backgroundColor: Colors.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  profileButton: {
+    marginBottom: 4,
+  },
+  profileImage: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: Colors.blue,
   },
   headerTitle: {
     fontSize: 26,
@@ -309,16 +457,16 @@ const styles = StyleSheet.create({
 
   statsRow: {
     flexDirection: 'row',
-    gap: 10,
+    gap: 8,
     marginBottom: 20,
     flexWrap: 'wrap',
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
   },
   statCard: {
     flex: 1,
-    minWidth: 160,
+    minWidth: 150,
     backgroundColor: Colors.surface,
-    padding: 18,
+    padding: 16,
     borderRadius: 6,
     borderWidth: 1,
     borderColor: Colors.border,
@@ -333,10 +481,70 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     fontWeight: '400',
   },
+  statCardActive: {
+    borderColor: Colors.blue,
+    backgroundColor: 'rgba(15, 111, 255, 0.1)',
+  },
+  statLabelActive: {
+    color: Colors.blue,
+    fontWeight: '600',
+  },
+
+  sectionContainer: {
+    paddingHorizontal: 12,
+    marginBottom: 20,
+  },
+  sectionTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 12,
+    color: Colors.textPrimary,
+  },
+  activityList: {
+    gap: 8,
+  },
+  activityCard: {
+    backgroundColor: Colors.surface,
+    padding: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  activityHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  activityAction: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: Colors.blue,
+  },
+  activityTime: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+  },
+  activityItemName: {
+    fontSize: 13,
+    color: Colors.textPrimary,
+  },
+  timeTakenBadge: {
+    marginTop: 6,
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(16, 185, 129, 0.1)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  timeTakenText: {
+    fontSize: 11,
+    color: '#10B981',
+    fontWeight: '500',
+  },
 
   searchContainer: {
     marginBottom: 20,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
   },
   searchInput: {
     backgroundColor: Colors.surface,
@@ -353,7 +561,7 @@ const styles = StyleSheet.create({
   contentArea: {
     flex: 1,
     paddingTop: 8,
-    paddingHorizontal: 20,
+    paddingHorizontal: 12,
   },
 
   categorySection: {
@@ -564,5 +772,21 @@ const styles = StyleSheet.create({
     color: Colors.blue,
     textAlign: 'center',
     fontWeight: '500',
+  },
+  fab: {
+    position: 'absolute',
+    bottom: 30,
+    right: 30,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    backgroundColor: Colors.blue,
+    alignItems: 'center',
+    justifyContent: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
   },
 });
