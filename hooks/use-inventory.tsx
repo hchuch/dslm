@@ -64,6 +64,7 @@ type InventoryContextValue = {
   getExpiringItems: (daysAhead: number) => InventoryItem[];
   getCriticalItems: () => InventoryItem[];
   getWasteVolume: () => number;
+  reorganizeStack: (stackId: StackId) => void;
 };
 
 const InventoryContext = createContext<InventoryContextValue | null>(null);
@@ -278,7 +279,7 @@ const generateDSLMInventory = () => {
       childCTBs: [],
       items: [],
       mass: 25.0,
-      volume: 3.0,
+      volume: 2.5,
       isWaste: false,
       loadedDate: new Date(2025, 0, 27),
       notes: 'Heavy lunar equipment - Day 28 deployment',
@@ -778,6 +779,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       getExpiringItems,
       getCriticalItems,
       getWasteVolume,
+      reorganizeStack,
     ]
   );
 

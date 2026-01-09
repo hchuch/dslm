@@ -1,6 +1,6 @@
+import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { IconSymbol } from '@/components/ui/icon-symbol';
 import { HapticTab } from '../../components/haptic-tab';
 import { useAuth } from '../../contexts/auth-context';
 import { useColorScheme } from '../../hooks/use-color-scheme';
@@ -53,6 +53,13 @@ export default function TabLayout() {
           }}
         />
 
+        <Tabs.Screen
+          name="logs"
+          options={{
+            title: 'Activity',
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="clock.fill" color={color} />,
+          }}
+        />
         <Tabs.Screen
           name="shipment"
           options={{

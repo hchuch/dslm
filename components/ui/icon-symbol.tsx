@@ -23,6 +23,8 @@ const MAPPING = {
   'tray.fill': 'inbox',
   'checkmark.seal.fill': 'check',
   'cube.fill': 'view-in-ar',
+  'clock.fill': 'history',
+  'trash.fill': 'delete',
 } as IconMapping;
 
 /**

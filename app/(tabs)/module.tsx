@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 
@@ -13,7 +14,7 @@ import { useNFC } from '../../hooks/use-nfc';
 import type { CTB, StackId } from '../../types/dslm';
 
 export default function ModuleScreen() {
-  const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById } = useInventory();
+  const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById, reorganizeStack } = useInventory();
   const [selectedStack, setSelectedStack] = useState<StackId | undefined>();
   const [scannedCTB, setScannedCTB] = useState<CTB | null>(null);
   const { scanTag, isScanning, isSupported } = useNFC();
@@ -125,7 +126,17 @@ export default function ModuleScreen() {
                   <ThemedText style={styles.closeBtnText}>Close</ThemedText>
                 </Pressable>
                 <ThemedText style={styles.modalTitle}>{stackDetails.stack?.stackId} Details</ThemedText>
-                <View style={styles.headerSpacer} />
+                <Pressable
+                  onPress={() => {
+                    if (selectedStack) {
+                      reorganizeStack(selectedStack);
+                      Alert.alert('Stack Optimized', 'CTBs have been resorted and repacked.');
+                    }
+                  }}
+                  style={styles.optimizeBtn}
+                >
+                  <Ionicons name="construct-outline" size={20} color="#0F6FFF" />
+                </Pressable>
               </View>
 
               <ScrollView style={styles.modalContent}>
@@ -268,8 +279,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '700',
   },
-  headerSpacer: {
-    width: 60,
+  optimizeBtn: {
+    padding: 8,
   },
   modalContent: {
     flex: 1,

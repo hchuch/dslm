@@ -332,14 +332,44 @@ export default function HomeScreen() {
             style={[styles.statCard, activeFilter === 'critical' && styles.statCardActive]}
             onPress={() => setActiveFilter(activeFilter === 'critical' ? 'all' : 'critical')}
           >
-            <Text style={[styles.statValue, { color: Colors.red }]}>{stats.criticalItems}</Text>
+            <View style={styles.statHeader}>
+              <Text style={[styles.statValue, { color: Colors.red }]}>{stats.criticalItems}</Text>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  Alert.alert(
+                    'Critical Items',
+                    'Essential supplies marked as high priority for mission success. These items are tracked closely to ensure availability.',
+                    [{ text: 'Got it' }]
+                  );
+                }}
+                hitSlop={10}
+              >
+                <Ionicons name="information-circle-outline" size={18} color={Colors.textSecondary} style={{ opacity: 0.7 }} />
+              </Pressable>
+            </View>
             <Text style={[styles.statLabel, activeFilter === 'critical' && styles.statLabelActive]}>Critical</Text>
           </Pressable>
           <Pressable
             style={[styles.statCard, activeFilter === 'expiring' && styles.statCardActive]}
             onPress={() => setActiveFilter(activeFilter === 'expiring' ? 'all' : 'expiring')}
           >
-            <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.expiringItems}</Text>
+            <View style={styles.statHeader}>
+              <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.expiringItems}</Text>
+              <Pressable
+                onPress={(e) => {
+                  e.stopPropagation();
+                  Alert.alert(
+                    'Expiring Items',
+                    'Consumables (food, medical supplies) that will expire within the next 30 days. Prioritize using these items.',
+                    [{ text: 'Got it' }]
+                  );
+                }}
+                hitSlop={10}
+              >
+                <Ionicons name="information-circle-outline" size={18} color={Colors.textSecondary} style={{ opacity: 0.7 }} />
+              </Pressable>
+            </View>
             <Text style={[styles.statLabel, activeFilter === 'expiring' && styles.statLabelActive]}>Expiring</Text>
           </Pressable>
         </View>
@@ -471,10 +501,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.border,
   },
+  statHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 4,
+  },
   statValue: {
     fontSize: 28,
     fontWeight: '600',
-    marginBottom: 4,
   },
   statLabel: {
     fontSize: 11,

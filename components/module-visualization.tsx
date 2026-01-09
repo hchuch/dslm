@@ -74,35 +74,35 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
                   {Array.from({ length: 16 }).map((_, i) => {
                     const position = i + 1;
 
+                    // Find if this position is occupied by any CTB
+                    // A CTB occupies positions [startPos, startPos + size - 1]
+                    // We assume size is in "units" of positions (0.5 -> 1 unit for now, or maybe 0.5 is shared?)
+                    // The user said "one up to eight different spaces".
+                    // Let's assume size 1.0 = 1 space, 2.0 = 2 spaces, etc.
+                    // For 0.5, we'll treat it as 1 space for visualization simplicity unless we want split cells.
+
+                    const occupyingCTB = ctbs.find(ctb => {
+                      if (ctb.location.stack !== stackId) return false;
+
+                      const startPos = ctb.location.position;
+                      // Map size to slots: 0.5->1, 1.0->1, 2.0->2, 4.0->4, etc.
+                      const slotsNeeded = Math.max(1, Math.ceil(ctb.size));
+
+                      return position >= startPos && position < startPos + slotsNeeded;
+                    });
+
                     return (
-                      <View key={i} style={styles.positionCellContainer}>
-                        {/* Render 4 layers as strips */}
-                        {Array.from({ length: 4 }).map((_, layerIndex) => {
-                          const layer = layerIndex + 1;
-
-                          const occupyingCTB = ctbs.find(ctb => {
-                            if (ctb.location.stack !== stackId) return false;
-                            if (ctb.location.layer !== layer) return false;
-
-                            const startPos = ctb.location.position;
-                            const slotsNeeded = Math.ceil(ctb.size);
-                            return position >= startPos && position < startPos + slotsNeeded;
-                          });
-
-                          return (
-                            <View
-                              key={layer}
-                              style={[
-                                styles.layerStrip,
-                                occupyingCTB && {
-                                  backgroundColor: getCTBColor(occupyingCTB.size),
-                                  opacity: 1 - (layerIndex * 0.15) // Slight dimming for deeper layers
-                                }
-                              ]}
-                            />
-                          );
-                        })}
-                      </View>
+                      <View
+                        key={i}
+                        style={[
+                          styles.positionCell,
+                          occupyingCTB && {
+                            backgroundColor: getCTBColor(occupyingCTB.size),
+                            borderWidth: 1,
+                            borderColor: 'rgba(255,255,255,0.2)'
+                          },
+                        ]}
+                      />
                     );
                   })}
                 </View>
@@ -288,21 +288,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
     justifyContent: 'center',
   },
-  positionCellContainer: {
+  positionCell: {
     width: 24,
     height: 24,
     backgroundColor: '#2A2B2E',
     borderRadius: 3,
-    overflow: 'hidden',
-    flexDirection: 'column',
-    justifyContent: 'space-between',
-    padding: 1,
-  },
-  layerStrip: {
-    flex: 1,
-    marginBottom: 1,
-    borderRadius: 1,
-    backgroundColor: 'transparent',
   },
   flexPositionsContainer: {
     height: 100,
