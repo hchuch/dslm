@@ -1,24 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, StyleSheet, View } from 'react-native';
+import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { AddShipmentModal } from '../../components/add-shipment-modal';
-import { CTBInspectorModal } from '../../components/ctb-inspector-modal';
-import ParallaxScrollView from '../../components/parallax-scroll-view';
+import { CTBViewer } from '../../components/ctb-viewer';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { Colors } from '../../constants/colors';
+import { useAuth } from '../../contexts/auth-context';
 import { useInventory } from '../../hooks/use-inventory';
 import type { CTB } from '../../types/dslm';
 
 export default function IncomingScreen() {
   const { getIncomingCTBs, receiveCTB } = useInventory();
+  const { user } = useAuth();
   const incomingCTBs = useMemo(() => getIncomingCTBs(), [getIncomingCTBs]);
   const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const insets = useSafeAreaInsets();
-  const headerHeight = 100 + insets.top;
 
   const handleReceiveCTB = (ctbId: string) => {
     const ctb = incomingCTBs.find(c => c.id === ctbId);
@@ -41,121 +38,125 @@ export default function IncomingScreen() {
   };
 
   return (
-    <>
-      <ParallaxScrollView
-        headerHeight={headerHeight}
-        headerBackgroundColor={{ light: '#0A0B0D', dark: '#0A0B0D' }}
-        headerImage={
-          <ThemedView style={[styles.headerBar, { height: headerHeight, paddingTop: insets.top }]}>
-            <ThemedText style={styles.headerTitle}>Incoming Logistics</ThemedText>
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <ThemedText type="title" style={styles.headerTitle}>Incoming Logistics</ThemedText>
             <ThemedText style={styles.headerSubtitle}>
               {incomingCTBs.length} {incomingCTBs.length === 1 ? 'CTB' : 'CTBs'} en route to Gateway
             </ThemedText>
-          </ThemedView>
-        }>
-
-        {incomingCTBs.length === 0 ? (
-          <ThemedView style={styles.emptyState}>
-            <Ionicons name="file-tray-outline" size={60} color="#666" style={{ marginBottom: 16, opacity: 0.5 }} />
-            <ThemedText style={styles.emptyTitle}>No Incoming CTBs</ThemedText>
-            <ThemedText style={styles.emptyText}>
-              All Cargo Transfer Bags have been received
-            </ThemedText>
-          </ThemedView>
-        ) : (
-          <View style={styles.gridContainer}>
-            {incomingCTBs.map((ctb) => (
-              <Pressable
-                key={ctb.id}
-                style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-                onPress={() => setSelectedCTB(ctb)}
-              >
-                <View style={styles.iconContainer}>
-                  <Ionicons name="cube" size={40} color="#0F6FFF" />
-                  <View style={styles.sizeBadge}>
-                    <ThemedText style={styles.sizeText}>{ctb.size * 2}</ThemedText>
-                  </View>
-                </View>
-
-                <View style={styles.cardContent}>
-                  <ThemedText style={styles.ctbId} numberOfLines={1}>
-                    {ctb.id}
-                  </ThemedText>
-                  <ThemedText style={styles.ctbLocation} numberOfLines={1}>
-                    Location: {ctb.location.path}
-                  </ThemedText>
-
-                  <View style={styles.statsRow}>
-                    <ThemedText style={styles.statText}>
-                      Mass: {ctb.mass}kg
-                    </ThemedText>
-                    <ThemedText style={styles.statText}>
-                      Items: {ctb.items.length}
-                    </ThemedText>
-                  </View>
-                </View>
-
-                <View style={styles.actionRow}>
-                  <Pressable
-                    style={({ pressed }) => [styles.receiveButton, pressed && styles.receiveButtonPressed]}
-                    onPress={(e) => {
-                      e.stopPropagation();
-                      handleReceiveCTB(ctb.id);
-                    }}
-                  >
-                    <Ionicons name="download-outline" size={16} color="#FFF" style={{ marginRight: 6 }} />
-                    <ThemedText style={styles.receiveButtonText}>Receive</ThemedText>
-                  </Pressable>
-
-                  <View style={styles.inspectHint}>
-                    <ThemedText style={styles.tapText}>Inspect</ThemedText>
-                    <Ionicons name="chevron-forward" size={14} color="#666" />
-                  </View>
-                </View>
-              </Pressable>
-            ))}
           </View>
-        )}
-      </ParallaxScrollView>
+        </View>
 
-      {/* FAB */}
-      <Pressable
-        style={({ pressed }) => [styles.fab, pressed && styles.fabPressed]}
-        onPress={() => setShowAddModal(true)}
-      >
-        <Ionicons name="add" size={32} color="#FFF" />
-      </Pressable>
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+          {incomingCTBs.length === 0 ? (
+            <ThemedView style={styles.emptyState}>
+              <Ionicons name="file-tray-outline" size={60} color="#666" style={{ marginBottom: 16, opacity: 0.5 }} />
+              <ThemedText style={styles.emptyTitle}>No Incoming CTBs</ThemedText>
+              <ThemedText style={styles.emptyText}>
+                All Cargo Transfer Bags have been received
+              </ThemedText>
+            </ThemedView>
+          ) : (
+            <View style={styles.gridContainer}>
+              {incomingCTBs.map((ctb) => (
+                <Pressable
+                  key={ctb.id}
+                  style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
+                  onPress={() => setSelectedCTB(ctb)}
+                >
+                  <View style={styles.iconContainer}>
+                    <Ionicons name="cube" size={40} color={Colors.blue} />
+                    <View style={styles.sizeBadge}>
+                      <ThemedText style={styles.sizeText}>{ctb.size * 2}</ThemedText>
+                    </View>
+                  </View>
 
-      <CTBInspectorModal
-        visible={!!selectedCTB}
-        ctb={selectedCTB}
-        onClose={() => setSelectedCTB(null)}
-        onReceive={handleReceiveCTB}
-      />
+                  <View style={styles.cardContent}>
+                    <ThemedText style={styles.ctbId} numberOfLines={1}>
+                      {ctb.id}
+                    </ThemedText>
+                    <ThemedText style={styles.ctbLocation} numberOfLines={1}>
+                      Location: {ctb.location.path}
+                    </ThemedText>
 
-      <AddShipmentModal
-        visible={showAddModal}
-        onClose={() => setShowAddModal(false)}
-      />
-    </>
+                    <View style={styles.statsRow}>
+                      <ThemedText style={styles.statText}>
+                        Mass: {ctb.mass}kg
+                      </ThemedText>
+                      <ThemedText style={styles.statText}>
+                        Items: {ctb.items.length}
+                      </ThemedText>
+                    </View>
+                  </View>
+
+                  <View style={styles.actionRow}>
+                    {user?.role !== 'ground-crew' ? (
+                      <Pressable
+                        style={({ pressed }) => [styles.receiveButton, pressed && styles.receiveButtonPressed]}
+                        onPress={(e) => {
+                          e.stopPropagation();
+                          handleReceiveCTB(ctb.id);
+                        }}
+                      >
+                        <Ionicons name="download-outline" size={16} color={Colors.textPrimary} style={{ marginRight: 6 }} />
+                        <ThemedText style={styles.receiveButtonText}>Receive</ThemedText>
+                      </Pressable>
+                    ) : (
+                      <ThemedText style={styles.statText}>En Route to Gateway</ThemedText>
+                    )}
+
+                    <View style={styles.inspectHint}>
+                      <ThemedText style={styles.tapText}>Inspect</ThemedText>
+                      <Ionicons name="chevron-forward" size={14} color="#666" />
+                    </View>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          )}
+        </ScrollView>
+
+        <CTBViewer
+          visible={!!selectedCTB}
+          ctb={selectedCTB}
+          onClose={() => setSelectedCTB(null)}
+          onReceive={handleReceiveCTB}
+        />
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerBar: {
-    height: 100,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
-    backgroundColor: 'transparent',
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 20,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: '700',
-    marginBottom: 4,
+    // inherited from type="title"
   },
   headerSubtitle: {
     fontSize: 14,
-    opacity: 0.7,
+    color: Colors.textSecondary,
+    marginBottom: 4,
+  },
+  contentContainer: {
+    paddingBottom: 24,
+    paddingTop: 16,
+    paddingHorizontal: 16,
   },
   emptyState: {
     alignItems: 'center',
@@ -182,11 +183,11 @@ const styles = StyleSheet.create({
   },
   card: {
     width: '48%', // 2 columns with gap
-    backgroundColor: '#111214',
+    backgroundColor: Colors.surface,
     borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#2A2B2E',
+    borderColor: Colors.border,
     padding: 12,
   },
   cardPressed: {
@@ -211,15 +212,16 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#3A3B3E',
+    borderColor: Colors.borderLight, // Using borderLight for subtle contrast
   },
   sizeText: {
     fontSize: 10,
     fontWeight: '700',
-    color: '#FFF',
+    color: Colors.textPrimary,
   },
   cardContent: {
     marginBottom: 12,
+    alignItems: 'flex-start', // Ensure default left alignment for text in card
   },
   ctbId: {
     fontSize: 13,
@@ -234,6 +236,7 @@ const styles = StyleSheet.create({
   statsRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    width: '100%',
   },
   statText: {
     fontSize: 10,
@@ -244,7 +247,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     borderTopWidth: 1,
-    borderTopColor: '#2A2B2E',
+    borderTopColor: Colors.border,
     paddingTop: 8,
   },
   tapText: {
@@ -252,30 +255,10 @@ const styles = StyleSheet.create({
     color: '#0F6FFF',
     fontWeight: '600',
   },
-  fab: {
-    position: 'absolute',
-    bottom: 24,
-    right: 24,
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#0F6FFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
-    elevation: 8,
-  },
-  fabPressed: {
-    opacity: 0.8,
-    transform: [{ scale: 0.95 }],
-  },
   receiveButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F6FFF',
+    backgroundColor: Colors.blue,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
@@ -284,7 +267,7 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   receiveButtonText: {
-    color: '#FFF',
+    color: Colors.textPrimary,
     fontSize: 12,
     fontWeight: '600',
   },

@@ -1,36 +1,37 @@
-// Exact Vercel Dark Colors
 export const Colors = {
-    // Exact Vercel blacks and grays
-    background: '#0A0A0A',       // Vercel main background (dark gray, not pure black)
-    surface: '#000000',          // Vercel card background (pure black)
-    surfaceHover: '#1A1A1A',     // Hover state
-    border: '#2E2E2E',           // Vercel border color (lighter gray)
-    borderLight: '#3A3A3A',      // Lighter border
+    // Exact Deep Space Dark Colors
+    background: '#000000',       // Pure Black
+    surface: '#111111',          // Dark Gray for cards/inputs
+    surfaceHover: '#1A1A1A',     // Slightly lighter for interaction
+    border: '#333333',           // Subtle border
+    borderLight: '#444444',      // Lighter border for contrast
 
-    // Blue accents (primary - majority)
-    blue: '#0070F3',             // Vercel blue
+    // Blue accents (primary)
+    blue: '#0F6FFF',             // Vibrant Blue
     blueLight: '#3291FF',        // Light blue
-    blueDark: '#0761D1',         // Dark blue
-    blueGlow: 'rgba(0, 112, 243, 0.1)', // Blue glow
+    blueDark: '#0A4ABF',         // Darker shade
+    blueGlow: 'rgba(15, 111, 255, 0.15)', // Blue glow
 
-    // Red accents (secondary - minimal use)
-    red: '#E00',                 // Vercel red
-    redLight: '#FF1A1A',         // Light red
-    redDark: '#C00',             // Dark red
-    redGlow: 'rgba(238, 0, 0, 0.1)', // Red glow
+    // Red accents (alert/critical)
+    red: '#FF453A',              // iOS/System Red
+    redLight: '#FF6961',         // Light red
+    redDark: '#D70015',          // Dark red
+    redGlow: 'rgba(49, 48, 48, 0.15)', // Red glow
 
     // Grays for text
     textPrimary: '#FFFFFF',      // Pure white
-    textSecondary: '#888888',    // Vercel secondary text
+    textSecondary: '#888888',    // Muted gray
     textTertiary: '#666666',     // Darker gray
-    textMuted: '#4A4A4A',        // Very dark gray
+    textMuted: '#444444',        // Placeholder gray
 
-    // Subtle accents
-    success: '#0070F3',          // Use blue for success
-    warning: '#0070F3',          // Use blue for warnings too
-    error: '#E00',               // Red for errors only
+    // Status colors
+    incoming: '#0F6FFF',         // matches blue
+    stock: '#0F6FFF',            // matches blue
+    success: '#32D74B',          // Green
+    warning: '#FFD60A',          // Yellow
+    error: '#FF453A',            // Red
 
     // Overlays
-    overlay: 'rgba(0, 0, 0, 0.8)',
-    glassBlur: 'rgba(255, 255, 255, 0.02)',
+    overlay: 'rgba(0, 0, 0, 0.85)',
+    glassBlur: 'rgba(255, 255, 255, 0.05)',
 };

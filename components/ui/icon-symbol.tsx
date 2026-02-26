@@ -25,6 +25,7 @@ const MAPPING = {
   'cube.fill': 'view-in-ar',
   'clock.fill': 'history',
   'trash.fill': 'delete',
+  'person.2.fill': 'people',
 } as IconMapping;
 
 /**

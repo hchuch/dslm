@@ -1,0 +1,279 @@
+// Prisma schema for DSLM Server
+// NASA Deep Space Logistics Module - Inventory Management System
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// ===== Authentication =====
+
+model User {
+  id              String    @id @default(uuid())
+  username        String    @unique
+  passwordHash    String
+  name            String
+  role            String    @default("astronaut") // astronaut, mission-specialist, ground-crew, loader
+  currentLocation String    @default("Earth") // Gateway, Earth, Lunar-Surface, DSLM
+
+  sessions        Session[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  syncVersion     Int       @default(0)
+  deletedAt       DateTime?
+}
+
+model Session {
+  id        String   @id @default(uuid())
+  token     String   @unique
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+}
+
+// ===== Categories =====
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String    @unique // e.g., "food", "custom-tools"
+  label       String    // Display name: "Food", "Custom Tools"
+  prefix      String    // For ID generation: "FOOD", "CTOOLS"
+  icon        String?   // Optional icon identifier
+  isSystem    Boolean   @default(false) // true for built-in, false for custom
+  isImportant Boolean   @default(false) // Items in this category are flagged as important
+
+  items       InventoryItem[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  syncVersion Int       @default(0)
+  deletedAt   DateTime?
+}
+
+// ===== Storage Locations =====
+
+model Stack {
+  id                 String   @id @default(uuid())
+  stackId            String   @unique // S1, S2, S3, C1, C2, INCOMING
+  positions          Int      @default(16)
+  maxLayers          Int      @default(4)
+  allowedCTBSizes    String   // JSON array: "[0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0]"
+  isFlexibleShape    Boolean  @default(false)
+  totalVolume        Float    @default(12.0)
+  currentUtilization Float    @default(0)
+
+  ctbs               CTB[]
+
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+  syncVersion        Int      @default(0)
+  deletedAt          DateTime?
+}
+
+// ===== CTB (Cargo Transfer Bag) =====
+
+model CTB {
+  id                 String    @id @default(uuid())
+  ctbId              String    @unique // Human-readable ID: CTB-FOOD-001
+  rfidTagType        String    @default("RFID")
+  rfidTagId          String
+  rfidBatteryLife    Int       @default(365)
+  size               Float     // 0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0
+
+  // Location
+  stackId            String
+  stack              Stack     @relation(fields: [stackId], references: [stackId])
+  position           Int
+  layer              Int       @default(1)
+  locationPath       String    // e.g., "S1-P5-L2"
+
+  // Nesting
+  parentCTBId        String?
+  parentCTB          CTB?      @relation("CTBNesting", fields: [parentCTBId], references: [id])
+  childCTBs          CTB[]     @relation("CTBNesting")
+
+  // Contents
+  items              InventoryItem[]
+
+  // Properties
+  mass               Float
+  volume             Float
+  packedVolume       Float?    // External volume CTB occupies (m³)
+  unpackedVolume     Float?    // Internal storage capacity (m³)
+  nestingDepth       Int       @default(0) // 0=root, max 3 levels
+  isWaste            Boolean   @default(false)
+  wasteVolumeMultiplier Float?
+
+  // Tracking
+  loadedDate         DateTime  @default(now())
+  lastAccessedDate   DateTime?
+  lastAccessedBy     String?
+  notes              String?
+
+  // Shipment reference
+  shipmentId         String?
+  shipment           Shipment? @relation(fields: [shipmentId], references: [id])
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  syncVersion        Int       @default(0)
+  deletedAt          DateTime?
+}
+
+// ===== Inventory Items =====
+
+model InventoryItem {
+  id              String    @id @default(uuid())
+  itemId          String    @unique // Human-readable ID: ITEM-12345
+  name            String
+  description     String    @default("")
+
+  // Category
+  categoryName    String
+  category        Category  @relation(fields: [categoryName], references: [name])
+
+  // Status
+  status          String    @default("incoming") // incoming, stock, delivered, in-use, consumed, waste, relocated
+
+  // Tracking tags
+  rfidTagType     String?
+  rfidTagId       String?
+  barcode         String?
+
+  // Location & containment
+  ctbId           String
+  ctb             CTB       @relation(fields: [ctbId], references: [ctbId])
+  stackId         String
+  position        Int
+  layer           Int       @default(1)
+  locationPath    String    // e.g., "S1-P5-L2"
+
+  // Physical properties
+  mass            Float
+  volume          Float
+  quantity        Int       @default(1)
+
+  // Food-specific data (JSON)
+  foodData        String?   // JSON: { mealType, mealNumber, nutritionalInfo, etc. }
+
+  // Tracking dates
+  loadedDate      DateTime  @default(now())
+  deliveredDate   DateTime?
+  consumedDate    DateTime?
+  expiryDate      DateTime?
+
+  // Metadata
+  manufacturer    String?
+  partNumber      String?
+  serialNumber    String?
+  criticality     String    @default("medium") // critical, high, medium, low
+  notes           String?
+
+  // History
+  history         ItemHistoryEntry[]
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  syncVersion     Int       @default(0)
+  deletedAt       DateTime?
+}
+
+// ===== Item History / Audit Trail =====
+
+model ItemHistoryEntry {
+  id              String    @id @default(uuid())
+
+  itemId          String
+  item            InventoryItem @relation(fields: [itemId], references: [itemId])
+
+  timestamp       DateTime  @default(now())
+  action          String    // loaded, delivered, moved, consumed, inspected, relocated, marked-waste
+  userId          String?
+
+  // Location tracking
+  fromStackId     String?
+  fromPosition    Int?
+  fromLayer       Int?
+  fromPath        String?
+  toStackId       String?
+  toPosition      Int?
+  toLayer         Int?
+  toPath          String?
+
+  notes           String?
+  timeTaken       Int?      // seconds
+
+  createdAt       DateTime  @default(now())
+  syncVersion     Int       @default(0)
+}
+
+// ===== Shipments =====
+
+model Shipment {
+  id              String    @id @default(uuid())
+  manifestId      String    @unique // MNF-2025-001
+
+  // Metadata
+  destination     String
+  priority        String    @default("Normal") // Low, Normal, High
+  notes           String?
+
+  // Status
+  status          String    @default("draft") // draft, manifested, launched, in-transit, delivered, received
+
+  // Contents
+  ctbs            CTB[]
+
+  // Tracking
+  createdAt       DateTime  @default(now())
+  launchedAt      DateTime?
+  deliveredAt     DateTime?
+  receivedAt      DateTime?
+
+  updatedAt       DateTime  @updatedAt
+  syncVersion     Int       @default(0)
+  deletedAt       DateTime?
+}
+
+// ===== Sync Infrastructure =====
+
+model SyncLog {
+  id              String    @id @default(uuid())
+  clientId        String    @unique // Device identifier
+  lastSyncVersion Int       @default(0)
+  lastSyncTime    DateTime  @default(now())
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+}
+
+model ChangeLog {
+  id              String    @id @default(uuid())
+
+  tableName       String    // Which table was changed
+  recordId        String    // ID of changed record
+  operation       String    // create, update, delete
+
+  // Store the change data as JSON
+  changeData      String    // JSON of the changed fields
+
+  syncVersion     Int       // Global sync version at time of change
+
+  createdAt       DateTime  @default(now())
+
+  @@index([syncVersion])
+  @@index([tableName, recordId])
+}
+
+// Global sync version counter
+model SyncMetadata {
+  id              String    @id @default("global")
+  currentVersion  Int       @default(0)
+  updatedAt       DateTime  @updatedAt
+}

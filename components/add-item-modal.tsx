@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useInventory } from '../hooks/use-inventory';
-import type { InventoryItem } from '../types/dslm';
+import type { InventoryItem, ItemCategory } from '../types/dslm';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
+import { Colors } from '../constants/colors';
 
 type AddItemModalProps = {
     visible: boolean;
@@ -12,22 +13,48 @@ type AddItemModalProps = {
     targetCtbId?: string;
 };
 
+// Categories that require expiration dates
+const EXPIRY_REQUIRED_CATEGORIES: ItemCategory[] = ['food', 'medical'];
+
 export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: AddItemModalProps) {
     const { addItem } = useInventory();
     const [name, setName] = useState('');
-    const [category, setCategory] = useState('misc');
+    const [category, setCategory] = useState<ItemCategory>('misc');
     const [quantity, setQuantity] = useState('1');
+    const [mass, setMass] = useState('1.0');
+    const [expiryDate, setExpiryDate] = useState(''); // Format: YYYY-MM-DD
     const [subItems, setSubItems] = useState<string[]>([]);
     const [subItemName, setSubItemName] = useState('');
 
+    const requiresExpiry = EXPIRY_REQUIRED_CATEGORIES.includes(category);
+
     const handleAdd = (keepOpen = false) => {
-        if (!name) return;
+        if (!name) {
+            Alert.alert('Required', 'Please enter an item name.');
+            return;
+        }
+
+        // Validate expiry date for food/medical items
+        if (requiresExpiry && !expiryDate) {
+            Alert.alert('Required', `Expiration date is required for ${category} items.`);
+            return;
+        }
+
+        // Parse expiry date if provided
+        let parsedExpiryDate: Date | undefined;
+        if (expiryDate) {
+            parsedExpiryDate = new Date(expiryDate);
+            if (isNaN(parsedExpiryDate.getTime())) {
+                Alert.alert('Invalid Date', 'Please enter a valid expiration date (YYYY-MM-DD).');
+                return;
+            }
+        }
 
         const newItem: InventoryItem = {
             id: `ITEM-${Date.now()}`,
             name,
             description: 'User added item',
-            category: category as any,
+            category,
             status: 'incoming',
             rfidTag: {
                 type: 'barcode',
@@ -35,11 +62,12 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
                 assignedDate: new Date(),
             },
             ctbId: targetCtbId || 'CTB-USER',
-            location: { stack: 'S1', position: 1, layer: 1, path: 'S1-P1-L1' },
-            mass: 1.0,
+            location: { stack: 'INCOMING' as any, position: 0, layer: 0, path: 'INCOMING' },
+            mass: parseFloat(mass) || 1.0,
             volume: 0.1,
             quantity: parseInt(quantity) || 1,
             loadedDate: new Date(),
+            expiryDate: parsedExpiryDate,
             criticality: 'low',
 
             history: [],
@@ -50,7 +78,7 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
                 category: 'misc',
                 status: 'incoming',
                 ctbId: targetCtbId || 'CTB-USER',
-                location: { stack: 'S1', position: 1, layer: 1, path: 'S1-P1-L1' },
+                location: { stack: 'INCOMING' as any, position: 0, layer: 0, path: 'INCOMING' },
                 mass: 0.1,
                 volume: 0.01,
                 quantity: 1,
@@ -67,6 +95,8 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
         }
         setName('');
         setQuantity('1');
+        setMass('1.0');
+        setExpiryDate('');
         setSubItems([]);
         setSubItemName('');
 
@@ -87,10 +117,11 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
 
     return (
         <Modal
-            animationType="slide"
+            animationType="fade"
             transparent={true}
             visible={visible}
             onRequestClose={onClose}
+            statusBarTranslucent
         >
             <View style={styles.centeredView}>
                 <ThemedView style={styles.modalView}>
@@ -108,7 +139,7 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
 
                         <ThemedText style={styles.label}>Category</ThemedText>
                         <View style={styles.categoryContainer}>
-                            {['food', 'medical', 'spare-parts', 'misc'].map((cat) => (
+                            {(['food', 'medical', 'spare-parts', 'misc'] as ItemCategory[]).map((cat) => (
                                 <Pressable
                                     key={cat}
                                     style={[
@@ -136,6 +167,48 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
                             value={quantity}
                             onChangeText={setQuantity}
                         />
+
+                        <ThemedText style={styles.label}>Mass (kg)</ThemedText>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="1.0"
+                            placeholderTextColor="#666"
+                            keyboardType="numeric"
+                            value={mass}
+                            onChangeText={setMass}
+                        />
+
+                        {/* Expiration Date - Required for food/medical */}
+                        {requiresExpiry ? (
+                            <>
+                                <ThemedText style={styles.label}>
+                                    Expiration Date <ThemedText style={styles.required}>*</ThemedText>
+                                </ThemedText>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="YYYY-MM-DD"
+                                    placeholderTextColor="#666"
+                                    value={expiryDate}
+                                    onChangeText={setExpiryDate}
+                                    keyboardType="numbers-and-punctuation"
+                                />
+                                <ThemedText style={styles.expiryHint}>
+                                    Required for {category} items
+                                </ThemedText>
+                            </>
+                        ) : (
+                            <>
+                                <ThemedText style={styles.label}>Expiration Date (Optional)</ThemedText>
+                                <TextInput
+                                    style={styles.input}
+                                    placeholder="YYYY-MM-DD"
+                                    placeholderTextColor="#666"
+                                    value={expiryDate}
+                                    onChangeText={setExpiryDate}
+                                    keyboardType="numbers-and-punctuation"
+                                />
+                            </>
+                        )}
 
                         <ThemedText style={styles.label}>Sub-Items (Nesting)</ThemedText>
                         <View style={styles.subItemInputContainer}>
@@ -318,5 +391,16 @@ const styles = StyleSheet.create({
         color: '#FF453A',
         fontSize: 14,
         fontWeight: 'bold',
+    },
+    required: {
+        color: '#FF453A',
+        fontWeight: '600',
+    },
+    expiryHint: {
+        fontSize: 12,
+        color: '#888',
+        marginTop: -12,
+        marginBottom: 16,
+        fontStyle: 'italic',
     },
 });

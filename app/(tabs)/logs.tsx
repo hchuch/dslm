@@ -1,7 +1,7 @@
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+import { Colors } from '@/constants/colors';
 import { useInventory } from '@/hooks/use-inventory';
 import { ItemHistoryEntry } from '@/types/dslm';
 import React, { useMemo, useState } from 'react';
@@ -20,7 +20,6 @@ const ACTION_FILTERS = ['All', 'moved', 'consumed', 'delivered', 'loaded', 'insp
 
 export default function LogsScreen() {
     const { inventoryItems } = useInventory();
-    const colorScheme = useColorScheme();
     const [searchQuery, setSearchQuery] = useState('');
     const [activeFilter, setActiveFilter] = useState('All');
     const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
@@ -72,7 +71,7 @@ export default function LogsScreen() {
         <TouchableOpacity
             style={[
                 styles.logItem,
-                { backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#f2f2f7' },
+                { backgroundColor: Colors.surface },
             ]}
             onPress={() => setSelectedLog(item)}>
             <View style={styles.logHeader}>
@@ -90,7 +89,7 @@ export default function LogsScreen() {
                                             : 'clock.fill'
                         }
                         size={20}
-                        color={colorScheme === 'dark' ? '#0a84ff' : '#007aff'}
+                        color={Colors.blue}
                     />
                 </View>
                 <View style={styles.logHeaderText}>
@@ -112,20 +111,20 @@ export default function LogsScreen() {
 
     return (
         <ThemedView style={styles.container}>
-            <SafeAreaView style={styles.safeArea}>
+            <SafeAreaView style={styles.safeArea} edges={['top']}>
                 <View style={styles.header}>
                     <ThemedText type="title">Activity Log</ThemedText>
                 </View>
 
                 {/* Search Bar */}
-                <View style={[styles.searchContainer, { backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#e5e5ea' }]}>
-                    <IconSymbol name="chevron.right" size={20} color="#8e8e93" style={{ transform: [{ rotate: '90deg' }] }} />
+                <View style={[styles.searchContainer, { backgroundColor: Colors.surface }]}>
+                    <IconSymbol name="chevron.right" size={20} color={Colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
                     {/* Using chevron as generic search/magnifier fallback if needed, or just omit icon */}
                     {/* Actually 'magnifyingglass' is generic, let's assume we don't have it mapped and use generic text input space */}
                     <TextInput
-                        style={[styles.searchInput, { color: colorScheme === 'dark' ? '#fff' : '#000' }]}
+                        style={[styles.searchInput, { color: Colors.textPrimary }]}
                         placeholder="Search logs..."
-                        placeholderTextColor="#8e8e93"
+                        placeholderTextColor={Colors.textSecondary}
                         value={searchQuery}
                         onChangeText={setSearchQuery}
                     />
@@ -143,7 +142,7 @@ export default function LogsScreen() {
                                 style={[
                                     styles.filterChip,
                                     activeFilter === filter && styles.activeFilterChip,
-                                    { borderColor: colorScheme === 'dark' ? '#3a3a3c' : '#c7c7cc' },
+                                    { borderColor: Colors.border },
                                 ]}
                                 onPress={() => setActiveFilter(filter)}>
                                 <ThemedText
@@ -178,11 +177,11 @@ export default function LogsScreen() {
                     animationType="slide"
                     onRequestClose={() => setSelectedLog(null)}>
                     <View style={styles.modalOverlay}>
-                        <View style={[styles.modalContent, { backgroundColor: colorScheme === 'dark' ? '#1c1c1e' : '#fff' }]}>
+                        <View style={[styles.modalContent, { backgroundColor: Colors.surface }]}>
                             <TouchableOpacity
                                 style={styles.closeButton}
                                 onPress={() => setSelectedLog(null)}>
-                                <IconSymbol name="chevron.right" size={24} color="#8e8e93" style={{ transform: [{ rotate: '90deg' }] }} />
+                                <IconSymbol name="chevron.right" size={24} color={Colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
                             </TouchableOpacity>
 
                             {selectedLog && (
@@ -238,6 +237,7 @@ export default function LogsScreen() {
 const styles = StyleSheet.create({
     container: {
         flex: 1,
+        backgroundColor: Colors.background,
     },
     safeArea: {
         flex: 1,
@@ -272,14 +272,14 @@ const styles = StyleSheet.create({
         marginRight: 8,
     },
     activeFilterChip: {
-        backgroundColor: '#007aff',
-        borderColor: '#007aff',
+        backgroundColor: Colors.blue,
+        borderColor: Colors.blue,
     },
     filterText: {
         fontSize: 14,
     },
     activeFilterText: {
-        color: '#fff',
+        color: Colors.textPrimary,
         fontWeight: '600',
     },
     listContent: {
@@ -300,7 +300,7 @@ const styles = StyleSheet.create({
         width: 32,
         height: 32,
         borderRadius: 16,
-        backgroundColor: 'rgba(0, 122, 255, 0.1)',
+        backgroundColor: Colors.blueGlow,
         justifyContent: 'center',
         alignItems: 'center',
         marginRight: 10,
@@ -313,11 +313,11 @@ const styles = StyleSheet.create({
     },
     actionText: {
         fontSize: 12,
-        color: '#8e8e93',
+        color: Colors.textSecondary,
     },
     notesText: {
         fontSize: 14,
-        color: '#8e8e93',
+        color: Colors.textSecondary,
         marginTop: 4,
     },
     emptyContainer: {
@@ -344,7 +344,7 @@ const styles = StyleSheet.create({
     },
     modalSubtitle: {
         fontSize: 14,
-        color: '#8e8e93',
+        color: Colors.textSecondary,
         marginBottom: 20,
     },
     detailRow: {
@@ -352,7 +352,7 @@ const styles = StyleSheet.create({
         justifyContent: 'space-between',
         marginBottom: 12,
         borderBottomWidth: StyleSheet.hairlineWidth,
-        borderBottomColor: '#3a3a3c',
+        borderBottomColor: Colors.border,
         paddingBottom: 8,
     },
     detailSection: {

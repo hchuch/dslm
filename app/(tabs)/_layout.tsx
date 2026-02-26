@@ -1,26 +1,33 @@
 import { IconSymbol } from '@/components/ui/icon-symbol';
-import { Tabs } from 'expo-router';
+import { Redirect, Tabs } from 'expo-router';
 import React from 'react';
 import { HapticTab } from '../../components/haptic-tab';
+import { Colors } from '../../constants/colors';
 import { useAuth } from '../../contexts/auth-context';
-import { useColorScheme } from '../../hooks/use-color-scheme';
-import { InventoryProvider } from '../../hooks/use-inventory';
+
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
   const { user } = useAuth();
 
+  if (!user) {
+    return <Redirect href="/login" />;
+  }
+
   return (
-    <InventoryProvider>
-      <Tabs
+    <Tabs
         screenOptions={{
-          tabBarActiveTintColor: '#105bd8',
-          tabBarInactiveTintColor: '#aeb0b5',
+          tabBarActiveTintColor: Colors.blue,
+          tabBarInactiveTintColor: Colors.textSecondary,
           tabBarStyle: {
-            backgroundColor: '#212121',
-            borderTopColor: '#323a45',
+            backgroundColor: Colors.surface,
+            borderTopColor: Colors.border,
           },
           headerShown: false,
           tabBarButton: HapticTab,
+          sceneStyle: {
+            backgroundColor: Colors.background,
+          },
+          animation: 'shift',
+          lazy: true,
         }}>
         <Tabs.Screen
           name="index"
@@ -40,6 +47,7 @@ export default function TabLayout() {
           name="incoming"
           options={{
             title: 'Incoming',
+            href: null,
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="tray.fill" color={color} />,
           }}
         />
@@ -47,9 +55,18 @@ export default function TabLayout() {
           name="delivered"
           options={{
             title: 'Delivered',
+            href: null,
             tabBarIcon: ({ color }) => (
               <IconSymbol size={28} name="checkmark.seal.fill" color={color} />
             ),
+          }}
+        />
+        <Tabs.Screen
+          name="waste"
+          options={{
+            title: 'Waste',
+            href: null,
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="trash.fill" color={color} />,
           }}
         />
 
@@ -64,11 +81,18 @@ export default function TabLayout() {
           name="shipment"
           options={{
             title: 'Shipment',
-            href: user?.role === 'ground-crew' ? '/shipment' : null,
+            href: user?.role === 'ground-crew' || user?.role === 'admin' ? '/shipment' : null,
             tabBarIcon: ({ color }) => <IconSymbol size={28} name="paperplane.fill" color={color} />,
           }}
         />
-      </Tabs>
-    </InventoryProvider>
+        <Tabs.Screen
+          name="admin"
+          options={{
+            title: 'Admin',
+            href: user?.role === 'admin' ? '/admin' : null,
+            tabBarIcon: ({ color }) => <IconSymbol size={28} name="person.2.fill" color={color} />,
+          }}
+        />
+    </Tabs>
   );
 }

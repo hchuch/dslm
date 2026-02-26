@@ -16,10 +16,11 @@ export default function ItemDetailModal({ visible, item, onClose }: ItemDetailMo
 
     return (
         <Modal
-            animationType="slide"
+            animationType="fade"
             transparent={true}
             visible={visible}
             onRequestClose={onClose}
+            statusBarTranslucent
         >
             <View style={styles.centeredView}>
                 <ThemedView style={styles.modalView}>

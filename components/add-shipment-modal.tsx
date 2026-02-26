@@ -3,7 +3,8 @@ import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
 import { useInventory } from '../hooks/use-inventory';
-import type { CTB, CTBSize, InventoryItem, ItemCategory, Location } from '../types/dslm';
+import type { CTB, CTBSize, InventoryItem, ItemCategory, Location, StackId } from '../types/dslm';
+import { CTB_VOLUME_SPECS } from '../types/dslm';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 
@@ -18,8 +19,13 @@ export function AddShipmentModal({ visible, onClose }: Props) {
     // CTB State
     const [ctbId, setCtbId] = useState('');
     const [ctbSize, setCtbSize] = useState<CTBSize>(1.0);
-    const [targetStack, setTargetStack] = useState('S1');
-    const [targetPosition, setTargetPosition] = useState('1');
+    const [targetStack, setTargetStack] = useState<StackId>('S1');
+    const [targetPosition, setTargetPosition] = useState(1);
+    const [showStackPicker, setShowStackPicker] = useState(false);
+    const [showPositionPicker, setShowPositionPicker] = useState(false);
+
+    const STACKS: StackId[] = ['S1', 'S2', 'S3', 'C1', 'C2'];
+    const POSITIONS = Array.from({ length: 16 }, (_, i) => i + 1);
 
     // Items State
     const [items, setItems] = useState<Partial<InventoryItem>[]>([]);
@@ -58,11 +64,14 @@ export function AddShipmentModal({ visible, onClose }: Props) {
         }
 
         const location: Location = {
-            stack: targetStack as any,
-            position: parseInt(targetPosition),
+            stack: targetStack,
+            position: targetPosition,
             layer: 1,
             path: `${targetStack}-P${targetPosition}-L1`
         };
+
+        // Get volume specs for this size
+        const volumeSpecs = CTB_VOLUME_SPECS[ctbSize] ?? { packed: ctbSize * 0.028, unpacked: ctbSize * 0.025 };
 
         const newCTB: CTB = {
             id: ctbId,
@@ -78,6 +87,9 @@ export function AddShipmentModal({ visible, onClose }: Props) {
             items: items.map(i => i.id!),
             mass: items.reduce((sum, i) => sum + (i.mass || 0), 0) + 1.0, // Items + container
             volume: ctbSize * 0.1, // Approximation
+            packedVolume: volumeSpecs.packed,
+            unpackedVolume: volumeSpecs.unpacked,
+            nestingDepth: 0,
             isWaste: false,
             loadedDate: new Date(),
         };
@@ -111,8 +123,9 @@ export function AddShipmentModal({ visible, onClose }: Props) {
         <Modal
             visible={visible}
             animationType="slide"
-            presentationStyle="pageSheet"
+            presentationStyle="formSheet"
             onRequestClose={onClose}
+            statusBarTranslucent
         >
             <ThemedView style={styles.container}>
                 <View style={styles.header}>
@@ -141,24 +154,83 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                         <View style={styles.row}>
                             <View style={[styles.inputGroup, { flex: 1, marginRight: 8 }]}>
                                 <ThemedText style={styles.label}>Stack</ThemedText>
-                                <TextInput
-                                    style={styles.input}
-                                    value={targetStack}
-                                    onChangeText={setTargetStack}
-                                    placeholder="S1"
-                                    placeholderTextColor="#666"
-                                />
+                                <Pressable
+                                    style={styles.dropdown}
+                                    onPress={() => setShowStackPicker(!showStackPicker)}
+                                >
+                                    <ThemedText style={styles.dropdownText}>{targetStack}</ThemedText>
+                                    <Ionicons name={showStackPicker ? 'chevron-up' : 'chevron-down'} size={18} color="#888" />
+                                </Pressable>
+                                {showStackPicker && (
+                                    <View style={styles.pickerContainer}>
+                                        {STACKS.map((stack) => (
+                                            <Pressable
+                                                key={stack}
+                                                style={[
+                                                    styles.pickerItem,
+                                                    targetStack === stack && styles.pickerItemSelected,
+                                                ]}
+                                                onPress={() => {
+                                                    setTargetStack(stack);
+                                                    setShowStackPicker(false);
+                                                }}
+                                            >
+                                                <ThemedText
+                                                    style={[
+                                                        styles.pickerItemText,
+                                                        targetStack === stack && styles.pickerItemTextSelected,
+                                                    ]}
+                                                >
+                                                    {stack}
+                                                </ThemedText>
+                                                {targetStack === stack && (
+                                                    <Ionicons name="checkmark" size={18} color="#0F6FFF" />
+                                                )}
+                                            </Pressable>
+                                        ))}
+                                    </View>
+                                )}
                             </View>
                             <View style={[styles.inputGroup, { flex: 1, marginLeft: 8 }]}>
                                 <ThemedText style={styles.label}>Position</ThemedText>
-                                <TextInput
-                                    style={styles.input}
-                                    value={targetPosition}
-                                    onChangeText={setTargetPosition}
-                                    keyboardType="numeric"
-                                    placeholder="1"
-                                    placeholderTextColor="#666"
-                                />
+                                <Pressable
+                                    style={styles.dropdown}
+                                    onPress={() => setShowPositionPicker(!showPositionPicker)}
+                                >
+                                    <ThemedText style={styles.dropdownText}>{targetPosition}</ThemedText>
+                                    <Ionicons name={showPositionPicker ? 'chevron-up' : 'chevron-down'} size={18} color="#888" />
+                                </Pressable>
+                                {showPositionPicker && (
+                                    <View style={styles.pickerContainer}>
+                                        <ScrollView style={styles.pickerScroll} nestedScrollEnabled>
+                                            {POSITIONS.map((pos) => (
+                                                <Pressable
+                                                    key={pos}
+                                                    style={[
+                                                        styles.pickerItem,
+                                                        targetPosition === pos && styles.pickerItemSelected,
+                                                    ]}
+                                                    onPress={() => {
+                                                        setTargetPosition(pos);
+                                                        setShowPositionPicker(false);
+                                                    }}
+                                                >
+                                                    <ThemedText
+                                                        style={[
+                                                            styles.pickerItemText,
+                                                            targetPosition === pos && styles.pickerItemTextSelected,
+                                                        ]}
+                                                    >
+                                                        Position {pos}
+                                                    </ThemedText>
+                                                    {targetPosition === pos && (
+                                                        <Ionicons name="checkmark" size={18} color="#0F6FFF" />
+                                                    )}
+                                                </Pressable>
+                                            ))}
+                                        </ScrollView>
+                                    </View>
+                                )}
                             </View>
                         </View>
                     </View>
@@ -270,7 +342,51 @@ const styles = StyleSheet.create({
     },
     row: {
         flexDirection: 'row',
+        alignItems: 'flex-start',
+    },
+    dropdown: {
+        backgroundColor: '#1A1B1E',
+        borderWidth: 1,
+        borderColor: '#2A2B2E',
+        borderRadius: 8,
+        padding: 12,
+        flexDirection: 'row',
+        justifyContent: 'space-between',
         alignItems: 'center',
+    },
+    dropdownText: {
+        color: '#FFF',
+        fontSize: 16,
+    },
+    pickerContainer: {
+        backgroundColor: '#1A1B1E',
+        borderWidth: 1,
+        borderColor: '#2A2B2E',
+        borderRadius: 8,
+        marginTop: 4,
+        overflow: 'hidden',
+    },
+    pickerScroll: {
+        maxHeight: 200,
+    },
+    pickerItem: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        padding: 12,
+        borderBottomWidth: 1,
+        borderBottomColor: '#2A2B2E',
+    },
+    pickerItemSelected: {
+        backgroundColor: 'rgba(15, 111, 255, 0.1)',
+    },
+    pickerItemText: {
+        color: '#FFF',
+        fontSize: 14,
+    },
+    pickerItemTextSelected: {
+        color: '#0F6FFF',
+        fontWeight: '600',
     },
     addItemForm: {
         backgroundColor: '#111214',

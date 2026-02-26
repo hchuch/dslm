@@ -1,8 +1,8 @@
 import React from 'react';
-import { Pressable, StyleSheet, View } from 'react-native';
+import { StyleSheet, TouchableOpacity, View } from 'react-native';
+import { Colors } from '../constants/colors';
 import type { CTB, StackConfiguration, StackId } from '../types/dslm';
 import { ThemedText } from './themed-text';
-import { ThemedView } from './themed-view';
 
 interface ModuleVisualizationProps {
   stacks: StackConfiguration[];
@@ -11,230 +11,162 @@ interface ModuleVisualizationProps {
   selectedStack?: StackId;
 }
 
+const CELL_SIZE = 18;
+const CELL_GAP = 2;
+
+const getCTBColor = (size: number): string => {
+  switch (size) {
+    case 0.5: return '#3498DB';
+    case 1.0: return '#3498DB';
+    case 2.0: return '#9B59B6';
+    case 4.0: return '#E67E22';
+    case 6.0: return '#2ECC71';
+    case 8.0: return '#E91E63';
+    case 10.0: return '#00BCD4';
+    default: return '#9B59B6';
+  }
+};
+
+const getUtilizationColor = (utilization: number) => {
+  if (utilization < 50) return '#2ECC71';
+  if (utilization < 80) return '#FFB86B';
+  return '#E74C3C';
+};
+
 export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack }: ModuleVisualizationProps) {
   const getStackUtilization = (stackId: StackId) => {
     const stack = stacks.find(s => s.stackId === stackId);
     if (!stack) return 0;
-
     const ctbsInStack = ctbs.filter(ctb => ctb.location.stack === stackId);
     const usedVolume = ctbsInStack.reduce((sum, ctb) => sum + ctb.volume, 0);
-
     return Math.round((usedVolume / stack.totalVolume) * 100);
-  };
-
-  const getUtilizationColor = (utilization: number) => {
-    if (utilization < 50) return '#2ECC71';
-    if (utilization < 80) return '#FFB86B';
-    return '#E74C3C';
-  };
-
-  const getCTBColor = (size: number) => {
-    switch (size) {
-      case 0.5: return '#3498DB'; // Blue
-      case 1.0: return '#2ECC71'; // Green
-      case 2.0: return '#F1C40F'; // Yellow
-      case 4.0: return '#E67E22'; // Orange
-      default: return '#9B59B6'; // Purple (Large)
-    }
   };
 
   const getCTBCountInStack = (stackId: StackId) => {
     return ctbs.filter(ctb => ctb.location.stack === stackId).length;
   };
 
+  const getTotalMassInStack = (stackId: StackId) => {
+    return ctbs.filter(ctb => ctb.location.stack === stackId).reduce((sum, ctb) => sum + ctb.mass, 0);
+  };
+
+  const renderStackCard = (stackId: StackId, isFlex: boolean = false) => {
+    const stack = stacks.find(s => s.stackId === stackId);
+    const utilization = getStackUtilization(stackId);
+    const ctbCount = getCTBCountInStack(stackId);
+    const totalMass = getTotalMassInStack(stackId);
+    const isSelected = selectedStack === stackId;
+    const positions = stack?.positions || 16;
+    const maxLayers = stack?.maxLayers || 4;
+
+    return (
+      <TouchableOpacity
+        key={stackId}
+        activeOpacity={0.7}
+        onPress={() => onStackPress?.(stackId)}
+        style={[
+          styles.stackCard,
+          isFlex && styles.flexStackCard,
+          isSelected && styles.stackCardSelected,
+        ]}>
+        <View style={styles.stackHeader}>
+          <ThemedText style={styles.stackIdText}>{stackId}</ThemedText>
+          <ThemedText style={[styles.stackType, isFlex && { color: '#FFB86B' }]}>
+            {isFlex ? 'FLEX' : 'STANDARD'}
+          </ThemedText>
+        </View>
+
+        {/* Grid */}
+        <View style={styles.gridContainer}>
+          {isFlex ? (
+            <View style={styles.flexGrid}>
+              {Array.from({ length: 8 }, (_, i) => (
+                <View key={i} style={styles.flexCell} />
+              ))}
+            </View>
+          ) : (
+            Array.from({ length: maxLayers }, (_, layerIdx) => (
+              <View key={layerIdx} style={styles.gridRow}>
+                {Array.from({ length: positions }, (_, posIdx) => (
+                  <View key={posIdx} style={styles.gridCell} />
+                ))}
+              </View>
+            ))
+          )}
+        </View>
+
+        {/* Stats */}
+        <View style={styles.statsContainer}>
+          <View style={styles.statRow}>
+            <ThemedText style={styles.statLabel}>CTBs:</ThemedText>
+            <ThemedText style={styles.statValue}>{ctbCount}</ThemedText>
+          </View>
+          <View style={styles.statRow}>
+            <ThemedText style={styles.statLabel}>Total Mass:</ThemedText>
+            <ThemedText style={styles.statValue}>{totalMass.toFixed(1)} kg</ThemedText>
+          </View>
+          <View style={styles.statRow}>
+            <ThemedText style={styles.statLabel}>Capacity:</ThemedText>
+            <View style={[styles.capacityBadge, { backgroundColor: getUtilizationColor(utilization) }]}>
+              <ThemedText style={styles.capacityText}>{utilization}%</ThemedText>
+            </View>
+          </View>
+        </View>
+
+        {/* Footer */}
+        <View style={styles.footer}>
+          <ThemedText style={styles.footerText}>
+            {isFlex ? 'Irregular shape' : `${positions} positions`}
+          </ThemedText>
+          <ThemedText style={styles.footerText}>
+            {isFlex ? 'Soft CTBs only' : `${maxLayers} layers`}
+          </ThemedText>
+        </View>
+      </TouchableOpacity>
+    );
+  };
+
   return (
-    <ThemedView style={styles.container}>
-      <ThemedText style={styles.title}>DSLM Module Layout</ThemedText>
-      <ThemedText style={styles.subtitle}>4-Meter Cylinder • 5 Storage Stacks • 52m³ Capacity</ThemedText>
+    <View>
+      {/* Main Stacks */}
+      <View style={styles.stacksContainer}>
+        {renderStackCard('S1')}
+        {renderStackCard('S2')}
+        {renderStackCard('S3')}
+      </View>
 
-      <View style={styles.moduleContainer}>
-        {/* Main stacks S1, S2, S3 */}
-        <View style={styles.mainStacksRow}>
-          {(['S1', 'S2', 'S3'] as StackId[]).map((stackId) => {
-            const utilization = getStackUtilization(stackId);
-            const ctbCount = getCTBCountInStack(stackId);
-            const isSelected = selectedStack === stackId;
-
-            return (
-              <Pressable
-                key={stackId}
-                onPress={() => onStackPress?.(stackId)}
-                style={({ pressed }) => [
-                  styles.stackCard,
-                  isSelected && styles.stackCardSelected,
-                  pressed && styles.stackCardPressed,
-                ]}>
-                <View style={styles.stackHeader}>
-                  <ThemedText style={styles.stackId}>{stackId}</ThemedText>
-                  <ThemedText style={styles.stackType}>Standard</ThemedText>
-                </View>
-
-                {/* Visualization of positions */}
-                <View style={styles.positionsGrid}>
-                  {Array.from({ length: 16 }).map((_, i) => {
-                    const position = i + 1;
-
-                    // Find if this position is occupied by any CTB
-                    // A CTB occupies positions [startPos, startPos + size - 1]
-                    // We assume size is in "units" of positions (0.5 -> 1 unit for now, or maybe 0.5 is shared?)
-                    // The user said "one up to eight different spaces".
-                    // Let's assume size 1.0 = 1 space, 2.0 = 2 spaces, etc.
-                    // For 0.5, we'll treat it as 1 space for visualization simplicity unless we want split cells.
-
-                    const occupyingCTB = ctbs.find(ctb => {
-                      if (ctb.location.stack !== stackId) return false;
-
-                      const startPos = ctb.location.position;
-                      // Map size to slots: 0.5->1, 1.0->1, 2.0->2, 4.0->4, etc.
-                      const slotsNeeded = Math.max(1, Math.ceil(ctb.size));
-
-                      return position >= startPos && position < startPos + slotsNeeded;
-                    });
-
-                    return (
-                      <View
-                        key={i}
-                        style={[
-                          styles.positionCell,
-                          occupyingCTB && {
-                            backgroundColor: getCTBColor(occupyingCTB.size),
-                            borderWidth: 1,
-                            borderColor: 'rgba(255,255,255,0.2)'
-                          },
-                        ]}
-                      />
-                    );
-                  })}
-                </View>
-
-                <View style={styles.stackStats}>
-                  <View style={styles.statRow}>
-                    <ThemedText style={styles.statLabel}>CTBs:</ThemedText>
-                    <ThemedText style={styles.statValue}>{ctbCount}</ThemedText>
-                  </View>
-                  <View style={styles.statRow}>
-                    <ThemedText style={styles.statLabel}>Capacity:</ThemedText>
-                    <View
-                      style={[
-                        styles.utilizationBar,
-                        { backgroundColor: getUtilizationColor(utilization) },
-                      ]}>
-                      <ThemedText style={styles.utilizationText}>{utilization}%</ThemedText>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.dimensionsRow}>
-                  <ThemedText style={styles.dimensionText}>16 positions</ThemedText>
-                  <ThemedText style={styles.dimensionText}>4 layers</ThemedText>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* Flexible stacks C1, C2 */}
-        <ThemedText style={styles.sectionLabel}>Flexible Shape Stacks</ThemedText>
-        <View style={styles.flexStacksRow}>
-          {(['C1', 'C2'] as StackId[]).map((stackId) => {
-            const utilization = getStackUtilization(stackId);
-            const ctbCount = getCTBCountInStack(stackId);
-            const isSelected = selectedStack === stackId;
-
-            return (
-              <Pressable
-                key={stackId}
-                onPress={() => onStackPress?.(stackId)}
-                style={({ pressed }) => [
-                  styles.stackCard,
-                  styles.flexStackCard,
-                  isSelected && styles.stackCardSelected,
-                  pressed && styles.stackCardPressed,
-                ]}>
-                <View style={styles.stackHeader}>
-                  <ThemedText style={styles.stackId}>{stackId}</ThemedText>
-                  <ThemedText style={[styles.stackType, { color: '#FFB86B' }]}>Flex</ThemedText>
-                </View>
-
-                {/* Curved visualization for flex stacks */}
-                <View style={styles.flexPositionsContainer}>
-                  <View style={styles.flexShapeIndicator}>
-                    <ThemedText style={{ fontSize: 40, opacity: 0.3 }}>⬬</ThemedText>
-                  </View>
-                </View>
-
-                <View style={styles.stackStats}>
-                  <View style={styles.statRow}>
-                    <ThemedText style={styles.statLabel}>CTBs:</ThemedText>
-                    <ThemedText style={styles.statValue}>{ctbCount}</ThemedText>
-                  </View>
-                  <View style={styles.statRow}>
-                    <ThemedText style={styles.statLabel}>Capacity:</ThemedText>
-                    <View
-                      style={[
-                        styles.utilizationBar,
-                        { backgroundColor: getUtilizationColor(utilization) },
-                      ]}>
-                      <ThemedText style={styles.utilizationText}>{utilization}%</ThemedText>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={styles.dimensionsRow}>
-                  <ThemedText style={styles.dimensionText}>Irregular</ThemedText>
-                  <ThemedText style={styles.dimensionText}>Soft CTBs</ThemedText>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
+      {/* Flex Stacks */}
+      <ThemedText style={styles.sectionLabel}>Flexible Shape Stacks</ThemedText>
+      <View style={styles.stacksContainer}>
+        {renderStackCard('C1', true)}
+        {renderStackCard('C2', true)}
       </View>
 
       {/* Legend */}
       <View style={styles.legend}>
-        <ThemedText style={styles.legendTitle}>Legend</ThemedText>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: '#3498DB' }]} />
-          <ThemedText style={styles.legendText}>0.5 CTB</ThemedText>
-          <View style={[styles.legendDot, { backgroundColor: '#2ECC71', marginLeft: 12 }]} />
-          <ThemedText style={styles.legendText}>1.0 CTB</ThemedText>
-          <View style={[styles.legendDot, { backgroundColor: '#F1C40F', marginLeft: 12 }]} />
-          <ThemedText style={styles.legendText}>2.0 CTB</ThemedText>
-        </View>
-        <View style={styles.legendRow}>
-          <View style={[styles.legendDot, { backgroundColor: '#E67E22' }]} />
-          <ThemedText style={styles.legendText}>4.0 CTB</ThemedText>
-          <View style={[styles.legendDot, { backgroundColor: '#9B59B6', marginLeft: 12 }]} />
-          <ThemedText style={styles.legendText}>Large CTB</ThemedText>
+        <ThemedText style={styles.legendTitle}>CTB Sizes</ThemedText>
+        <View style={styles.legendGrid}>
+          {[
+            { color: '#3498DB', label: '1 slot' },
+            { color: '#9B59B6', label: '2 slots' },
+            { color: '#E67E22', label: '4 slots' },
+            { color: '#2ECC71', label: '6+ slots' },
+          ].map((item) => (
+            <View key={item.label} style={styles.legendItem}>
+              <View style={[styles.legendDot, { backgroundColor: item.color }]} />
+              <ThemedText style={styles.legendText}>{item.label}</ThemedText>
+            </View>
+          ))}
         </View>
       </View>
-    </ThemedView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    padding: 0,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: '700',
-    marginBottom: 6,
-  },
-  subtitle: {
-    fontSize: 13,
-    opacity: 0.7,
-    marginBottom: 24,
-    lineHeight: 18,
-  },
-  moduleContainer: {
-    marginBottom: 20,
-  },
-  mainStacksRow: {
-    flexDirection: 'row',
+  stacksContainer: {
     gap: 12,
     marginBottom: 20,
-    flexWrap: 'wrap',
   },
   sectionLabel: {
     fontSize: 14,
@@ -242,29 +174,20 @@ const styles = StyleSheet.create({
     opacity: 0.7,
     marginBottom: 12,
   },
-  flexStacksRow: {
-    flexDirection: 'row',
-    gap: 12,
-    flexWrap: 'wrap',
-  },
   stackCard: {
-    flex: 1,
-    minWidth: 180,
-    backgroundColor: '#1A1B1E',
+    backgroundColor: Colors.surface,
     borderRadius: 12,
     padding: 16,
-    borderWidth: 2,
-    borderColor: '#2A2B2E',
-  },
-  stackCardSelected: {
-    borderColor: '#0F6FFF',
-    backgroundColor: '#0F6FFF10',
-  },
-  stackCardPressed: {
-    opacity: 0.8,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   flexStackCard: {
-    borderColor: '#FFB86B40',
+    borderColor: Colors.warning,
+    borderStyle: 'dashed',
+  },
+  stackCardSelected: {
+    borderColor: Colors.blue,
+    backgroundColor: Colors.blueGlow,
   },
   stackHeader: {
     flexDirection: 'row',
@@ -272,7 +195,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
-  stackId: {
+  stackIdText: {
     fontSize: 18,
     fontWeight: '700',
   },
@@ -280,31 +203,38 @@ const styles = StyleSheet.create({
     fontSize: 11,
     opacity: 0.6,
     textTransform: 'uppercase',
+    letterSpacing: 1,
   },
-  positionsGrid: {
+  gridContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: CELL_GAP,
+  },
+  gridRow: {
+    flexDirection: 'row',
+    gap: CELL_GAP,
+  },
+  gridCell: {
+    width: CELL_SIZE,
+    height: CELL_SIZE,
+    borderRadius: 3,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  flexGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 3,
-    marginBottom: 12,
-    justifyContent: 'center',
+    gap: CELL_GAP,
+    width: (CELL_SIZE * 4) + (CELL_GAP * 3),
   },
-  positionCell: {
-    width: 24,
-    height: 24,
-    backgroundColor: '#2A2B2E',
+  flexCell: {
+    width: CELL_SIZE,
+    height: CELL_SIZE,
     borderRadius: 3,
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
-  flexPositionsContainer: {
-    height: 100,
-    marginBottom: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  flexShapeIndicator: {
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stackStats: {
+  statsContainer: {
     gap: 8,
     marginBottom: 12,
   },
@@ -321,52 +251,57 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
   },
-  utilizationBar: {
-    paddingHorizontal: 8,
+  capacityBadge: {
+    paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
     minWidth: 50,
     alignItems: 'center',
   },
-  utilizationText: {
+  capacityText: {
     fontSize: 11,
     fontWeight: '700',
     color: '#FFFFFF',
   },
-  dimensionsRow: {
+  footer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#2A2B2E',
+    borderTopColor: Colors.border,
   },
-  dimensionText: {
+  footerText: {
     fontSize: 10,
     opacity: 0.5,
   },
   legend: {
-    backgroundColor: '#1A1B1E',
+    backgroundColor: Colors.surface,
     borderRadius: 8,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#2A2B2E',
+    borderColor: Colors.border,
   },
   legendTitle: {
     fontSize: 12,
     fontWeight: '700',
-    marginBottom: 8,
+    marginBottom: 10,
     opacity: 0.8,
   },
-  legendRow: {
+  legendGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  legendItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 6,
+    minWidth: 70,
   },
   legendDot: {
     width: 12,
     height: 12,
-    borderRadius: 6,
-    marginRight: 8,
+    borderRadius: 3,
+    marginRight: 6,
   },
   legendText: {
     fontSize: 11,

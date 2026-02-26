@@ -1,9 +1,17 @@
-import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import type {
   CTB,
   CTBSize,
   InventoryItem,
   ItemCategory,
+  ItemHistoryEntry,
   ItemStatus,
   Location,
   NestingRule,
@@ -11,7 +19,11 @@ import type {
   StackConfiguration,
   StackId,
   WasteItem,
-} from '../types/dslm';
+  Category,
+} from "../types/dslm";
+import { MAX_NESTING_DEPTH, CTB_VOLUME_SPECS } from "../types/dslm";
+import * as localDb from "../services/local-db";
+import { pushIfOnline, addDataChangeListener } from "../services/sync-service";
 
 // Legacy type for backward compatibility
 export type Item = {
@@ -19,20 +31,24 @@ export type Item = {
   name: string;
   qty: number;
   category: string;
-  status: 'incoming' | 'stock';
+  status: "incoming" | "stock";
 };
 
 type InventoryContextValue = {
   // Legacy API
   items: Item[];
   markDelivered: (id: string) => void;
-  reload: () => void;
+  reload: () => Promise<void>;
+
+  // Loading state
+  isLoading: boolean;
 
   // New DSLM API
   inventoryItems: InventoryItem[];
   ctbs: CTB[];
   stacks: StackConfiguration[];
   wasteItems: WasteItem[];
+  categories: Category[];
 
   // Search & filter
   searchItems: (criteria: SearchCriteria) => InventoryItem[];
@@ -43,639 +59,852 @@ type InventoryContextValue = {
   getItemsByStatus: (status: ItemStatus) => InventoryItem[];
 
   // Actions
-  addItem: (item: InventoryItem) => void;
-  addCTB: (ctb: CTB) => void;
-  addShipment: (ctbs: CTB[], items: InventoryItem[]) => void;
-  deliverItem: (itemId: string, userId?: string, timeTaken?: number) => void;
-  moveItem: (itemId: string, newLocation: Location, userId?: string, timeTaken?: number) => void;
-  consumeItem: (itemId: string, userId?: string, timeTaken?: number) => void;
-  markAsWaste: (itemId: string, userId?: string, timeTaken?: number) => void;
-  relocateCTB: (ctbId: string, newLocation: Location, userId?: string, timeTaken?: number) => void;
+  addItem: (item: InventoryItem) => Promise<void>;
+  addCTB: (ctb: CTB) => Promise<void>;
+  addShipment: (ctbs: CTB[], items: InventoryItem[], metadata?: { destination?: string; priority?: string; notes?: string; manifestId?: string }) => Promise<void>;
+  deliverItem: (itemId: string, userId?: string, timeTaken?: number) => Promise<void>;
+  moveItem: (
+    itemId: string,
+    newLocation: Location,
+    newCtbId?: string,
+    userId?: string,
+    timeTaken?: number,
+  ) => Promise<void>;
+  consumeItem: (itemId: string, userId?: string, timeTaken?: number) => Promise<void>;
+  markAsWaste: (itemId: string, userId?: string, timeTaken?: number) => Promise<void>;
+  relocateCTB: (
+    ctbId: string,
+    newLocation: Location,
+    userId?: string,
+    timeTaken?: number,
+  ) => Promise<void>;
+  updateItemNotes: (itemId: string, notes: string) => Promise<void>;
+  deleteItem: (itemId: string) => Promise<void>;
+  deleteCTB: (ctbId: string) => Promise<void>;
+
+  // Category operations
+  addCategory: (category: Omit<Category, 'id' | 'isSystem'>) => Promise<void>;
 
   // CTB operations
   getChildCTBs: (parentCTBId: string) => CTB[];
   getItemsInCTB: (ctbId: string) => InventoryItem[];
   getNestingPath: (ctbId: string) => string[];
   getIncomingCTBs: () => CTB[];
-  receiveCTB: (ctbId: string, userId?: string) => void;
+  receiveCTB: (ctbId: string, userId?: string) => Promise<void>;
 
   // Analytics
   getStackUtilization: (stackId: StackId) => number;
   getExpiringItems: (daysAhead: number) => InventoryItem[];
-  getCriticalItems: () => InventoryItem[];
+  getImportantItems: () => InventoryItem[];
   getWasteVolume: () => number;
-  reorganizeStack: (stackId: StackId) => void;
+  updateWasteDisposalMethod: (itemId: string, method: "return-earth" | "deep-space" | "recycle") => void;
+  reorganizeStack: (stackId: StackId, mode: "manual" | "auto") => void;
+  updateStackLayout: (stackId: StackId, newCtbOrder: CTB[]) => void;
 };
 
 const InventoryContext = createContext<InventoryContextValue | null>(null);
 
 // Nesting rules for CTBs (per requirements)
-const NESTING_RULES: NestingRule[] = [
+// Exported for use in other components
+export const NESTING_RULES: NestingRule[] = [
+  { parentSize: 0.5, allowedChildSizes: [], maxChildren: 0 },
   { parentSize: 1.0, allowedChildSizes: [0.5], maxChildren: 2 },
   { parentSize: 2.0, allowedChildSizes: [1.0, 0.5], maxChildren: 2 },
   { parentSize: 4.0, allowedChildSizes: [2.0, 1.0, 0.5], maxChildren: 2 },
   { parentSize: 6.0, allowedChildSizes: [4.0, 2.0, 1.0, 0.5], maxChildren: 2 },
-  { parentSize: 8.0, allowedChildSizes: [6.0, 4.0, 2.0, 1.0, 0.5], maxChildren: 2 },
-  { parentSize: 10.0, allowedChildSizes: [8.0, 6.0, 4.0, 2.0, 1.0, 0.5], maxChildren: 3 },
+  {
+    parentSize: 8.0,
+    allowedChildSizes: [6.0, 4.0, 2.0, 1.0, 0.5],
+    maxChildren: 2,
+  },
+  {
+    parentSize: 10.0,
+    allowedChildSizes: [8.0, 6.0, 4.0, 2.0, 1.0, 0.5],
+    maxChildren: 3,
+  },
 ];
 
-// Generate sample DSLM inventory data
-const generateDSLMInventory = () => {
-  const stacks: StackConfiguration[] = [
-    { stackId: 'S1', positions: 16, maxLayers: 4, allowedCTBSizes: [0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0], isFlexibleShape: false, totalVolume: 12.0, currentUtilization: 0 },
-    { stackId: 'S2', positions: 16, maxLayers: 4, allowedCTBSizes: [0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0], isFlexibleShape: false, totalVolume: 12.0, currentUtilization: 0 },
-    { stackId: 'S3', positions: 16, maxLayers: 4, allowedCTBSizes: [0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0], isFlexibleShape: false, totalVolume: 12.0, currentUtilization: 0 },
-    { stackId: 'C1', positions: 16, maxLayers: 4, allowedCTBSizes: [0.5, 1.0, 2.0, 4.0], isFlexibleShape: true, totalVolume: 8.0, currentUtilization: 0 },
-    { stackId: 'C2', positions: 16, maxLayers: 4, allowedCTBSizes: [0.5, 1.0, 2.0, 4.0], isFlexibleShape: true, totalVolume: 8.0, currentUtilization: 0 },
-  ];
+// Re-export MAX_NESTING_DEPTH for convenience
+export { MAX_NESTING_DEPTH };
 
-  const ctbs: CTB[] = [];
-  const items: InventoryItem[] = [];
-
-  // Generate CTBs and items for food (meals)
-  const mealTypes = ['breakfast', 'lunch', 'dinner', 'snack'] as const;
-  const stacks_for_food: StackId[] = ['S1', 'S2'];
-
-  for (let i = 0; i < 20; i++) {
-    const stackId = stacks_for_food[i % 2];
-    const position = (i % 8) + 1;
-    const layer = Math.floor(i / 8) + 1;
-
-    const location: Location = {
-      stack: stackId,
-      position,
-      layer,
-      path: `${stackId}-P${position}-L${layer}`,
-    };
-
-    const ctbId = `CTB-FOOD-${String(i + 1).padStart(3, '0')}`;
-    const ctb: CTB = {
-      id: ctbId,
-      rfidTag: {
-        type: 'RFID',
-        id: `RFID-${ctbId}`,
-        assignedDate: new Date(2025, 0, 1 + i),
-        batteryLife: 365,
-      },
-      size: 0.5,
-      location,
-      childCTBs: [],
-      items: [],
-      mass: 2.0,
-      volume: 0.05,
-      isWaste: false,
-      loadedDate: new Date(2025, 0, 1 + i),
-    };
-
-    // Add 4 meals per CTB
-    for (let m = 0; m < 4; m++) {
-      const itemId = `MEAL-${String(i * 4 + m + 1).padStart(4, '0')}`;
-      const mealType = mealTypes[m % 4];
-      const expiryDate = new Date(2025, 11, 31); // End of year
-
-      const item: InventoryItem = {
-        id: itemId,
-        name: `${mealType.charAt(0).toUpperCase() + mealType.slice(1)} Meal ${i * 4 + m + 1}`,
-        description: `Prepared ${mealType} with nutritional balance`,
-        category: 'food',
-        status: i < 5 ? 'incoming' : 'stock',
-        rfidTag: {
-          type: 'barcode',
-          id: `BC-${itemId}`,
-          assignedDate: new Date(2025, 0, 1 + i),
-        },
-        ctbId,
-        location,
-        mass: 0.5,
-        volume: 0.01,
-        quantity: 1,
-        foodData: {
-          mealType,
-          mealNumber: i * 4 + m + 1,
-          expiryDate,
-          nutritionalInfo: {
-            calories: 500 + Math.floor(Math.random() * 300),
-            protein: 20 + Math.floor(Math.random() * 30),
-            carbs: 40 + Math.floor(Math.random() * 40),
-            fat: 10 + Math.floor(Math.random() * 20),
-            fiber: 5 + Math.floor(Math.random() * 10),
-            sodium: 500 + Math.floor(Math.random() * 500),
-            sugar: 5 + Math.floor(Math.random() * 15),
-          },
-          preparationInstructions: 'Heat in food warmer for 5 minutes',
-          allergens: [],
-          temperature: 'ambient',
-        },
-        expiryDate,
-        loadedDate: new Date(2025, 0, 1 + i),
-        criticality: 'critical',
-        history: [
-          {
-            timestamp: new Date(2025, 0, 1 + i),
-            action: 'loaded',
-            notes: `Loaded at Kennedy Space Center - Day ${i + 1}`,
-          },
-        ],
-      };
-
-      items.push(item);
-      ctb.items.push(itemId);
-    }
-
-    ctbs.push(ctb);
+/**
+ * Check if a child CTB can be nested inside a parent CTB
+ * Returns { canNest: boolean, reason?: string }
+ */
+export function canNestCTB(
+  childSize: CTBSize,
+  parentCTB: CTB,
+  existingChildCTBs: CTB[]
+): { canNest: boolean; reason?: string } {
+  // Find nesting rule for parent size
+  const rule = NESTING_RULES.find(r => r.parentSize === parentCTB.size);
+  if (!rule) {
+    return { canNest: false, reason: `No nesting rules for size ${parentCTB.size}` };
   }
 
-  // Generate CTBs for scientific equipment
-  const scienceStacks: StackId[] = ['S2', 'S3'];
-  for (let i = 0; i < 6; i++) {
-    const stackId = scienceStacks[i % 2];
-    const position = 9 + (i % 4);
-    const layer = Math.floor(i / 4) + 1;
-
-    const location: Location = {
-      stack: stackId,
-      position,
-      layer,
-      path: `${stackId}-P${position}-L${layer}`,
+  // Check if child size is allowed
+  if (!rule.allowedChildSizes.includes(childSize)) {
+    return {
+      canNest: false,
+      reason: `Size ${childSize} cannot nest in ${parentCTB.size}. Allowed: ${rule.allowedChildSizes.join(', ') || 'none'}`,
     };
-
-    const ctbId = `CTB-SCI-${String(i + 1).padStart(3, '0')}`;
-    const size: CTBSize = i < 2 ? 8.0 : 4.0;
-
-    const ctb: CTB = {
-      id: ctbId,
-      rfidTag: {
-        type: 'RFID',
-        id: `RFID-${ctbId}`,
-        assignedDate: new Date(2025, 0, 15),
-        batteryLife: 365,
-      },
-      size,
-      location,
-      childCTBs: [],
-      items: [],
-      mass: size * 1.5,
-      volume: size * 0.2,
-      isWaste: false,
-      loadedDate: new Date(2025, 0, 15),
-    };
-
-    const itemId = `SCI-EQUIP-${String(i + 1).padStart(3, '0')}`;
-    const item: InventoryItem = {
-      id: itemId,
-      name: `Scientific Equipment ${i + 1}`,
-      description: `Lab analysis equipment for Gateway experiments`,
-      category: 'scientific-equipment',
-      status: 'stock',
-      rfidTag: {
-        type: 'RFID',
-        id: `RFID-${itemId}`,
-        assignedDate: new Date(2025, 0, 15),
-        batteryLife: 365,
-      },
-      ctbId,
-      location,
-      mass: size * 1.2,
-      volume: size * 0.15,
-      quantity: 1,
-      loadedDate: new Date(2025, 0, 15),
-      criticality: 'medium',
-      partNumber: `SCI-${1000 + i}`,
-      history: [
-        {
-          timestamp: new Date(2025, 0, 15),
-          action: 'loaded',
-          notes: 'Loaded mid-month - Lab equipment',
-        },
-      ],
-    };
-
-    items.push(item);
-    ctb.items.push(itemId);
-    ctbs.push(ctb);
   }
 
-  // Generate large lunar equipment CTBs
-  for (let i = 0; i < 3; i++) {
-    const location: Location = {
-      stack: 'C1',
-      position: i + 1,
-      layer: 1,
-      path: `C1-P${i + 1}-L1`,
+  // Check max children limit
+  const currentChildCount = existingChildCTBs.length;
+  if (currentChildCount >= rule.maxChildren) {
+    return {
+      canNest: false,
+      reason: `Parent already has ${currentChildCount} nested CTBs (max: ${rule.maxChildren})`,
     };
-
-    const ctbId = `CTB-LUNAR-${String(i + 1).padStart(3, '0')}`;
-
-    const ctb: CTB = {
-      id: ctbId,
-      rfidTag: {
-        type: 'RFID',
-        id: `RFID-${ctbId}`,
-        assignedDate: new Date(2025, 0, 27),
-        batteryLife: 365,
-      },
-      size: 10.0,
-      location,
-      childCTBs: [],
-      items: [],
-      mass: 25.0,
-      volume: 2.5,
-      isWaste: false,
-      loadedDate: new Date(2025, 0, 27),
-      notes: 'Heavy lunar equipment - Day 28 deployment',
-    };
-
-    const itemId = `LUNAR-${String(i + 1).padStart(3, '0')}`;
-    const item: InventoryItem = {
-      id: itemId,
-      name: `Lunar Exploration Equipment ${i + 1}`,
-      description: `Large equipment for lunar surface operations`,
-      category: 'lunar-equipment',
-      status: 'stock',
-      rfidTag: {
-        type: 'RFID',
-        id: `RFID-${itemId}`,
-        assignedDate: new Date(2025, 0, 27),
-        batteryLife: 365,
-      },
-      ctbId,
-      location,
-      mass: 24.5,
-      volume: 2.8,
-      quantity: 1,
-      loadedDate: new Date(2025, 0, 27),
-      criticality: 'high',
-      partNumber: `LUN-${5000 + i}`,
-      history: [
-        {
-          timestamp: new Date(2025, 0, 27),
-          action: 'loaded',
-          notes: 'Loaded Day 27 - Lunar equipment for Day 28 mission',
-        },
-      ],
-    };
-
-    items.push(item);
-    ctb.items.push(itemId);
-    ctbs.push(ctb);
   }
 
-  return { items, ctbs, stacks };
-};
+  // Check nesting depth
+  const childDepth = (parentCTB.nestingDepth ?? 0) + 1;
+  if (childDepth > MAX_NESTING_DEPTH) {
+    return {
+      canNest: false,
+      reason: `Nesting depth ${childDepth} exceeds maximum of ${MAX_NESTING_DEPTH}`,
+    };
+  }
+
+  // Check volume constraints
+  const parentUnpackedVolume = parentCTB.unpackedVolume ?? CTB_VOLUME_SPECS[parentCTB.size]?.unpacked ?? 0;
+  const childPackedVolume = CTB_VOLUME_SPECS[childSize]?.packed ?? 0;
+
+  // Calculate used volume
+  let usedVolume = 0;
+  for (const child of existingChildCTBs) {
+    usedVolume += child.packedVolume ?? CTB_VOLUME_SPECS[child.size]?.packed ?? 0;
+  }
+
+  const availableVolume = parentUnpackedVolume - usedVolume;
+  if (childPackedVolume > availableVolume) {
+    return {
+      canNest: false,
+      reason: `Insufficient space: needs ${(childPackedVolume * 1000).toFixed(1)}L, only ${(availableVolume * 1000).toFixed(1)}L available`,
+    };
+  }
+
+  return { canNest: true };
+}
 
 export function InventoryProvider({ children }: { children: React.ReactNode }) {
-  const [inventoryData, setInventoryData] = useState(() => generateDSLMInventory());
+  const [inventoryItems, setInventoryItems] = useState<InventoryItem[]>([]);
+  const [ctbs, setCTBs] = useState<CTB[]>([]);
+  const [stacks, setStacks] = useState<StackConfiguration[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
   const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  // Load data from local database on mount
+  useEffect(() => {
+    loadFromDatabase();
+  }, []);
+
+  // Reload data when sync pulls new changes from server
+  useEffect(() => {
+    const unsubscribe = addDataChangeListener(() => {
+      console.log('[Inventory] Sync data changed, reloading from database...');
+      loadFromDatabase();
+    });
+    return unsubscribe;
+  }, []);
+
+  const loadFromDatabase = async () => {
+    setIsLoading(true);
+    try {
+      const [dbItems, dbCTBs, dbStacks, dbCategories] = await Promise.all([
+        localDb.getAllItems(),
+        localDb.getAllCTBs(),
+        localDb.getAllStacks(),
+        localDb.getAllCategories(),
+      ]);
+
+      setInventoryItems(dbItems);
+      setCTBs(dbCTBs);
+      setStacks(dbStacks);
+      setCategories(dbCategories.map(cat => ({
+        ...cat,
+        isSystem: cat.isSystem,
+        isImportant: cat.isImportant ?? false,
+      })));
+
+      // Populate CTB items arrays
+      const ctbsWithItems = dbCTBs.map(ctb => ({
+        ...ctb,
+        items: dbItems.filter(item => item.ctbId === ctb.id).map(item => item.id),
+      }));
+      setCTBs(ctbsWithItems);
+    } catch (error) {
+      console.error('Failed to load from database:', error);
+    } finally {
+      setIsLoading(false);
+    }
+  };
 
   // Legacy items for backward compatibility
   const legacyItems = useMemo((): Item[] => {
-    return inventoryData.items.map((item) => ({
+    return inventoryItems.map((item) => ({
       id: item.id,
       name: item.name,
       qty: item.quantity,
       category: item.category,
-      status: item.status === 'incoming' ? 'incoming' : 'stock',
+      status: item.status === "incoming" ? "incoming" : "stock",
     }));
-  }, [inventoryData.items]);
+  }, [inventoryItems]);
 
   // Search & filter functions
   const searchItems = useCallback(
     (criteria: SearchCriteria): InventoryItem[] => {
-      return inventoryData.items.filter((item) => {
-        if (criteria.query && !item.name.toLowerCase().includes(criteria.query.toLowerCase())) {
+      return inventoryItems.filter((item) => {
+        if (
+          criteria.query &&
+          !item.name.toLowerCase().includes(criteria.query.toLowerCase())
+        ) {
           return false;
         }
-        if (criteria.category && item.category !== criteria.category) return false;
+        if (criteria.category && item.category !== criteria.category)
+          return false;
         if (criteria.status && item.status !== criteria.status) return false;
-        if (criteria.stack && item.location.stack !== criteria.stack) return false;
-        if (criteria.criticality && item.criticality !== criteria.criticality) return false;
-        if (criteria.mealType && item.foodData?.mealType !== criteria.mealType) return false;
-        if (criteria.expiryBefore && item.expiryDate && item.expiryDate > criteria.expiryBefore) {
+        if (criteria.stack && item.location.stack !== criteria.stack)
+          return false;
+        if (criteria.criticality && item.criticality !== criteria.criticality)
+          return false;
+        if (criteria.mealType && item.foodData?.mealType !== criteria.mealType)
+          return false;
+        if (
+          criteria.expiryBefore &&
+          item.expiryDate &&
+          item.expiryDate > criteria.expiryBefore
+        ) {
           return false;
         }
         return true;
       });
     },
-    [inventoryData.items]
+    [inventoryItems],
   );
 
   const findItemById = useCallback(
-    (id: string) => inventoryData.items.find((item) => item.id === id),
-    [inventoryData.items]
+    (id: string) => inventoryItems.find((item) => item.id === id),
+    [inventoryItems],
   );
 
   const findCTBById = useCallback(
-    (id: string) => inventoryData.ctbs.find((ctb) => ctb.id === id),
-    [inventoryData.ctbs]
+    (id: string) => ctbs.find((ctb) => ctb.id === id),
+    [ctbs],
   );
 
   const getItemsByLocation = useCallback(
     (location: Partial<Location>) => {
-      return inventoryData.items.filter((item) => {
-        if (location.stack && item.location.stack !== location.stack) return false;
-        if (location.position && item.location.position !== location.position) return false;
-        if (location.layer && item.location.layer !== location.layer) return false;
+      return inventoryItems.filter((item) => {
+        if (location.stack && item.location.stack !== location.stack)
+          return false;
+        if (location.position && item.location.position !== location.position)
+          return false;
+        if (location.layer && item.location.layer !== location.layer)
+          return false;
         return true;
       });
     },
-    [inventoryData.items]
+    [inventoryItems],
   );
 
   const getItemsByCategory = useCallback(
-    (category: ItemCategory) => inventoryData.items.filter((item) => item.category === category),
-    [inventoryData.items]
+    (category: ItemCategory) =>
+      inventoryItems.filter((item) => item.category === category),
+    [inventoryItems],
   );
 
   const getItemsByStatus = useCallback(
-    (status: ItemStatus) => inventoryData.items.filter((item) => item.status === status),
-    [inventoryData.items]
+    (status: ItemStatus) =>
+      inventoryItems.filter((item) => item.status === status),
+    [inventoryItems],
   );
 
   // Actions
-  const addItem = useCallback((item: InventoryItem) => {
-    console.log(`[Inventory] Adding item: ${item.name} (${item.id}) to ${item.ctbId}`);
-    setInventoryData((prev) => ({
-      ...prev,
-      items: [item, ...prev.items],
-    }));
+  const addItem = useCallback(async (item: InventoryItem) => {
+    console.log(
+      `[Inventory] Adding item: ${item.name} (${item.id}) to ${item.ctbId}`,
+    );
+
+    // Ensure item has at least a "loaded" history entry
+    const hasLoadedEntry = item.history.some(h => h.action === 'loaded');
+    const history = hasLoadedEntry ? item.history : [
+      ...item.history,
+      {
+        timestamp: new Date(),
+        action: 'loaded' as const,
+        notes: `Item added to inventory`,
+      },
+    ];
+    const itemWithHistory = { ...item, history };
+
+    // Add to local database
+    await localDb.createItem(itemWithHistory);
+
+    // Update local state
+    setInventoryItems((prev) => [itemWithHistory, ...prev]);
+
+    // Trigger sync
+    await pushIfOnline();
   }, []);
 
-  const addCTB = useCallback((ctb: CTB) => {
+  const addCTB = useCallback(async (ctb: CTB) => {
     console.log(`[Inventory] Adding CTB: ${ctb.id} (Size: ${ctb.size})`);
-    setInventoryData((prev) => ({
-      ...prev,
-      ctbs: [ctb, ...prev.ctbs],
-    }));
+
+    // Add to local database
+    await localDb.createCTB(ctb);
+
+    // Update local state
+    setCTBs((prev) => [ctb, ...prev]);
+
+    // Trigger sync
+    await pushIfOnline();
   }, []);
 
-  const addShipment = useCallback((newCtbs: CTB[], newItems: InventoryItem[]) => {
-    console.log(`[Inventory] Adding Shipment: ${newCtbs.length} CTBs, ${newItems.length} Items`);
-    setInventoryData((prev) => ({
-      ...prev,
-      ctbs: [...newCtbs, ...prev.ctbs],
-      items: [...newItems, ...prev.items],
-    }));
-  }, []);
+  const addShipment = useCallback(
+    async (newCtbs: CTB[], newItems: InventoryItem[], metadata?: { destination?: string; priority?: string; notes?: string; manifestId?: string }) => {
+      console.log(
+        `[Inventory] Adding Shipment: ${newCtbs.length} CTBs, ${newItems.length} Items`,
+        metadata
+      );
 
-  const deliverItem = useCallback((itemId: string, userId?: string, timeTaken?: number) => {
-    console.log(`[Inventory] Delivering item: ${itemId}`);
-    setInventoryData((prev) => ({
-      ...prev,
-      items: prev.items.map((item) =>
-        item.id === itemId
-          ? {
-            ...item,
-            status: 'stock',
-            deliveredDate: new Date(),
-            history: [
-              ...item.history,
-              {
-                timestamp: new Date(),
-                action: 'delivered',
-                userId,
-                notes: 'Item delivered to Gateway and moved to stock',
-                timeTaken,
-              },
-            ],
-          }
-          : item
+      // All items in a shipment start with INCOMING location until received
+      const incomingLocation: Location = {
+        stack: 'INCOMING',
+        position: 0,
+        layer: 1,
+        path: 'INCOMING',
+      };
+
+      // Ensure all CTBs and items have INCOMING location
+      const ctbsWithIncoming = newCtbs.map(ctb => ({
+        ...ctb,
+        location: incomingLocation,
+      }));
+
+      const itemsWithIncoming = newItems.map(item => {
+        const hasLoadedEntry = item.history?.some(h => h.action === 'loaded');
+        const loadedEntry = {
+          timestamp: new Date(),
+          action: 'loaded' as const,
+          notes: `Loaded in shipment${metadata?.manifestId ? ` ${metadata.manifestId}` : ''}`,
+        };
+        return {
+          ...item,
+          location: incomingLocation,
+          status: 'incoming' as ItemStatus,
+          history: hasLoadedEntry ? item.history : [...(item.history || []), loadedEntry],
+        };
+      });
+
+      // Add CTBs to local database
+      for (const ctb of ctbsWithIncoming) {
+        await localDb.createCTB(ctb);
+      }
+
+      // Add items to local database
+      for (const item of itemsWithIncoming) {
+        await localDb.createItem(item);
+      }
+
+      // Update local state
+      setCTBs((prev) => [...ctbsWithIncoming, ...prev]);
+      setInventoryItems((prev) => [...itemsWithIncoming, ...prev]);
+
+      // Trigger sync
+      await pushIfOnline();
+    },
+    [],
+  );
+
+  const deliverItem = useCallback(
+    async (itemId: string, userId?: string, timeTaken?: number) => {
+      console.log(`[Inventory] Delivering item: ${itemId}`);
+
+      const historyEntry: ItemHistoryEntry = {
+        timestamp: new Date(),
+        action: "delivered",
+        userId,
+        notes: "Item delivered to Gateway and moved to stock",
+        timeTaken,
+      };
+
+      // Update in local database
+      await localDb.updateItem(itemId, {
+        status: 'delivered',
+        deliveredDate: new Date(),
+      });
+      await localDb.createHistoryEntry(itemId, historyEntry);
+
+      // Update local state
+      setInventoryItems((prev) =>
+        prev.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                status: "delivered",
+                deliveredDate: new Date(),
+                history: [...item.history, historyEntry],
+              }
+            : item,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [],
+  );
+
+  const moveItem = useCallback(
+    async (
+      itemId: string,
+      newLocation: Location,
+      newCtbId?: string,
+      userId?: string,
+      timeTaken?: number,
+    ) => {
+      const item = inventoryItems.find(i => i.id === itemId);
+      if (!item) return;
+
+      console.log(
+        `[Inventory] Moving item: ${itemId} to ${newLocation.path}${newCtbId ? ` (CTB: ${newCtbId})` : ""}`,
+      );
+
+      const historyEntry: ItemHistoryEntry = {
+        timestamp: new Date(),
+        action: "moved",
+        userId,
+        fromLocation: item.location,
+        toLocation: newLocation,
+        notes: newCtbId
+          ? `Relocated from ${item.ctbId} to ${newCtbId} (${item.location.path} → ${newLocation.path})`
+          : `Moved from ${item.location.path} to ${newLocation.path}`,
+        timeTaken,
+      };
+
+      // Update in local database
+      await localDb.updateItem(itemId, {
+        location: newLocation,
+        ctbId: newCtbId ?? item.ctbId,
+      });
+      await localDb.createHistoryEntry(itemId, historyEntry);
+
+      // Update local state
+      setInventoryItems((prev) =>
+        prev.map((i) =>
+          i.id === itemId
+            ? {
+                ...i,
+                location: newLocation,
+                ctbId: newCtbId ?? i.ctbId,
+                history: [...i.history, historyEntry],
+              }
+            : i,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [inventoryItems],
+  );
+
+  const consumeItem = useCallback(
+    async (itemId: string, userId?: string, timeTaken?: number) => {
+      console.log(`[Inventory] Consuming item: ${itemId}`);
+
+      const historyEntry: ItemHistoryEntry = {
+        timestamp: new Date(),
+        action: "consumed",
+        userId,
+        notes: "Item consumed",
+        timeTaken,
+      };
+
+      await localDb.updateItem(itemId, {
+        status: 'consumed',
+        consumedDate: new Date(),
+      });
+      await localDb.createHistoryEntry(itemId, historyEntry);
+
+      setInventoryItems((prev) =>
+        prev.map((item) =>
+          item.id === itemId
+            ? {
+                ...item,
+                status: "consumed",
+                consumedDate: new Date(),
+                history: [...item.history, historyEntry],
+              }
+            : item,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [],
+  );
+
+  const markAsWaste = useCallback(
+    async (itemId: string, userId?: string, timeTaken?: number) => {
+      console.log(`[Inventory] Marking item as waste: ${itemId}`);
+      const item = inventoryItems.find((i) => i.id === itemId);
+      if (!item) return;
+
+      const wasteItem: WasteItem = {
+        itemId,
+        ctbId: item.ctbId,
+        originalVolume: item.volume,
+        wasteVolume: item.volume * 1.4,
+        disposalMethod: "return-earth",
+        markedDate: new Date(),
+      };
+
+      setWasteItems((prev) => [...prev, wasteItem]);
+
+      const historyEntry: ItemHistoryEntry = {
+        timestamp: new Date(),
+        action: "marked-waste",
+        userId,
+        notes: "Marked for waste disposal",
+        timeTaken,
+      };
+
+      await localDb.updateItem(itemId, { status: 'waste' });
+      await localDb.createHistoryEntry(itemId, historyEntry);
+
+      setInventoryItems((prev) =>
+        prev.map((i) =>
+          i.id === itemId
+            ? {
+                ...i,
+                status: "waste",
+                history: [...i.history, historyEntry],
+              }
+            : i,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [inventoryItems],
+  );
+
+  const updateItemNotes = useCallback(async (itemId: string, notes: string) => {
+    console.log(`[Inventory] Updating notes for item: ${itemId}`);
+
+    await localDb.updateItem(itemId, { notes });
+
+    setInventoryItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, notes } : item,
       ),
-    }));
+    );
+
+    await pushIfOnline();
   }, []);
 
-  const moveItem = useCallback((itemId: string, newLocation: Location, userId?: string, timeTaken?: number) => {
-    console.log(`[Inventory] Moving item: ${itemId} to ${newLocation.path}`);
-    setInventoryData((prev) => ({
-      ...prev,
-      items: prev.items.map((item) =>
-        item.id === itemId
-          ? {
-            ...item,
-            location: newLocation,
-            history: [
-              ...item.history,
-              {
-                timestamp: new Date(),
-                action: 'moved',
-                userId,
-                fromLocation: item.location,
-                toLocation: newLocation,
-                notes: `Moved from ${item.location.path} to ${newLocation.path}`,
-                timeTaken,
-              },
-            ],
-          }
-          : item
+  const deleteItem = useCallback(async (itemId: string) => {
+    console.log(`[Inventory] Deleting item: ${itemId}`);
+
+    await localDb.deleteItem(itemId);
+
+    setInventoryItems((prev) => prev.filter((item) => item.id !== itemId));
+    setCTBs((prev) =>
+      prev.map((ctb) =>
+        ctb.items.includes(itemId)
+          ? { ...ctb, items: ctb.items.filter((id) => id !== itemId) }
+          : ctb,
       ),
-    }));
+    );
+
+    await pushIfOnline();
   }, []);
 
-  const consumeItem = useCallback((itemId: string, userId?: string, timeTaken?: number) => {
-    console.log(`[Inventory] Consuming item: ${itemId}`);
-    setInventoryData((prev) => ({
-      ...prev,
-      items: prev.items.map((item) =>
-        item.id === itemId
-          ? {
-            ...item,
-            status: 'consumed',
-            consumedDate: new Date(),
-            history: [
-              ...item.history,
-              {
-                timestamp: new Date(),
-                action: 'consumed',
-                userId,
-                notes: 'Item consumed',
-                timeTaken,
-              },
-            ],
-          }
-          : item
-      ),
-    }));
-  }, []);
+  const deleteCTB = useCallback(
+    async (ctbId: string) => {
+      console.log(`[Inventory] Deleting CTB: ${ctbId}`);
+      const itemsToDelete = inventoryItems
+        .filter((item) => item.ctbId === ctbId)
+        .map((item) => item.id);
 
-  const markAsWaste = useCallback((itemId: string, userId?: string, timeTaken?: number) => {
-    console.log(`[Inventory] Marking item as waste: ${itemId}`);
-    const item = inventoryData.items.find((i) => i.id === itemId);
-    if (!item) return;
+      await localDb.deleteCTB(ctbId);
+      for (const itemId of itemsToDelete) {
+        await localDb.deleteItem(itemId);
+      }
 
-    const wasteItem: WasteItem = {
-      itemId,
-      ctbId: item.ctbId,
-      originalVolume: item.volume,
-      wasteVolume: item.volume * 1.4, // 1.3-1.5x multiplier
-      disposalMethod: 'return-earth',
-      markedDate: new Date(),
+      setInventoryItems((prev) => prev.filter((item) => !itemsToDelete.includes(item.id)));
+      setCTBs((prev) => prev.filter((ctb) => ctb.id !== ctbId));
+
+      await pushIfOnline();
+    },
+    [inventoryItems],
+  );
+
+  const relocateCTB = useCallback(
+    async (
+      ctbId: string,
+      newLocation: Location,
+      userId?: string,
+      timeTaken?: number,
+    ) => {
+      console.log(
+        `[Inventory] Relocating CTB: ${ctbId} to ${newLocation.path}`,
+      );
+
+      await localDb.updateCTB(ctbId, {
+        location: newLocation,
+        lastAccessedDate: new Date(),
+        lastAccessedBy: userId,
+      });
+
+      setCTBs((prev) =>
+        prev.map((ctb) =>
+          ctb.id === ctbId
+            ? {
+                ...ctb,
+                location: newLocation,
+                lastAccessedDate: new Date(),
+                lastAccessedBy: userId,
+              }
+            : ctb,
+        ),
+      );
+
+      // Update items in the CTB
+      const itemsInCtb = inventoryItems.filter(item => item.ctbId === ctbId);
+      for (const item of itemsInCtb) {
+        const historyEntry: ItemHistoryEntry = {
+          timestamp: new Date(),
+          action: "relocated",
+          userId,
+          fromLocation: item.location,
+          toLocation: newLocation,
+          notes: `CTB ${ctbId} relocated`,
+          timeTaken,
+        };
+        await localDb.updateItem(item.id, { location: newLocation });
+        await localDb.createHistoryEntry(item.id, historyEntry);
+      }
+
+      setInventoryItems((prev) =>
+        prev.map((item) =>
+          item.ctbId === ctbId
+            ? {
+                ...item,
+                location: newLocation,
+                history: [
+                  ...item.history,
+                  {
+                    timestamp: new Date(),
+                    action: "relocated",
+                    userId,
+                    fromLocation: item.location,
+                    toLocation: newLocation,
+                    notes: `CTB ${ctbId} relocated`,
+                    timeTaken,
+                  },
+                ],
+              }
+            : item,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [inventoryItems],
+  );
+
+  // Category operations
+  const addCategory = useCallback(async (category: Omit<Category, 'id' | 'isSystem'>) => {
+    const newCategory: Category = {
+      id: `cat-${category.name}-${Date.now()}`,
+      ...category,
+      isSystem: false,
+      isImportant: category.isImportant ?? false,
     };
 
-    setWasteItems((prev) => [...prev, wasteItem]);
+    await localDb.createCategory({
+      id: newCategory.id,
+      name: newCategory.name,
+      label: newCategory.label,
+      prefix: newCategory.prefix,
+      icon: newCategory.icon ?? null,
+      isSystem: false,
+      isImportant: newCategory.isImportant,
+    });
 
-    setInventoryData((prev) => ({
-      ...prev,
-      items: prev.items.map((item) =>
-        item.id === itemId
-          ? {
-            ...item,
-            status: 'waste',
-            history: [
-              ...item.history,
-              {
-                timestamp: new Date(),
-                action: 'marked-waste',
-                userId,
-                notes: 'Marked for waste disposal',
-                timeTaken,
-              },
-            ],
-          }
-          : item
-      ),
-    }));
-  }, [inventoryData.items]);
+    setCategories((prev) => [...prev, newCategory]);
 
-  const relocateCTB = useCallback((ctbId: string, newLocation: Location, userId?: string, timeTaken?: number) => {
-    console.log(`[Inventory] Relocating CTB: ${ctbId} to ${newLocation.path}`);
-    setInventoryData((prev) => ({
-      ...prev,
-      ctbs: prev.ctbs.map((ctb) =>
-        ctb.id === ctbId
-          ? {
-            ...ctb,
-            location: newLocation,
-            lastAccessedDate: new Date(),
-            lastAccessedBy: userId,
-          }
-          : ctb
-      ),
-      items: prev.items.map((item) =>
-        item.ctbId === ctbId
-          ? {
-            ...item,
-            location: newLocation,
-            history: [
-              ...item.history,
-              {
-                timestamp: new Date(),
-                action: 'relocated',
-                userId,
-                fromLocation: item.location,
-                toLocation: newLocation,
-                notes: `CTB ${ctbId} relocated`,
-                timeTaken,
-              },
-            ],
-          }
-          : item
-      ),
-    }));
+    await pushIfOnline();
   }, []);
 
   // CTB operations
   const getChildCTBs = useCallback(
     (parentCTBId: string): CTB[] => {
-      const parentCTB = inventoryData.ctbs.find((ctb) => ctb.id === parentCTBId);
+      const parentCTB = ctbs.find((ctb) => ctb.id === parentCTBId);
       if (!parentCTB) return [];
-      return inventoryData.ctbs.filter((ctb) => parentCTB.childCTBs.includes(ctb.id));
+      return ctbs.filter((ctb) => parentCTB.childCTBs.includes(ctb.id));
     },
-    [inventoryData.ctbs]
+    [ctbs],
   );
 
   const getItemsInCTB = useCallback(
     (ctbId: string): InventoryItem[] => {
-      return inventoryData.items.filter((item) => item.ctbId === ctbId);
+      return inventoryItems.filter((item) => item.ctbId === ctbId);
     },
-    [inventoryData.items]
+    [inventoryItems],
   );
 
   const getNestingPath = useCallback(
     (ctbId: string): string[] => {
       const path: string[] = [ctbId];
-      let currentCTB = inventoryData.ctbs.find((ctb) => ctb.id === ctbId);
+      let currentCTB = ctbs.find((ctb) => ctb.id === ctbId);
 
       while (currentCTB?.parentCTB) {
         path.unshift(currentCTB.parentCTB);
-        currentCTB = inventoryData.ctbs.find((ctb) => ctb.id === currentCTB!.parentCTB);
+        currentCTB = ctbs.find((ctb) => ctb.id === currentCTB!.parentCTB);
       }
 
       return path;
     },
-    [inventoryData.ctbs]
+    [ctbs],
   );
 
   const getIncomingCTBs = useCallback((): CTB[] => {
-    // A CTB is incoming if it contains any items with status 'incoming'
-    // We only want top-level incoming CTBs (those that don't have a parent that is also incoming)
-    // For simplicity in this version, we'll just return all CTBs that have incoming items
-    // and let the UI handle hierarchy if needed.
-    // Actually, let's return top-level CTBs that have *any* incoming content (recursive check could be expensive,
-    // so we'll check if the CTB itself has incoming items or if we can infer it).
-    // Given the data structure, items have a `ctbId`.
-
     const incomingItemCTBIds = new Set(
-      inventoryData.items
-        .filter((item) => item.status === 'incoming')
-        .map((item) => item.ctbId)
+      inventoryItems
+        .filter((item) => item.status === "incoming")
+        .map((item) => item.ctbId),
     );
 
-    // Filter CTBs that are in the set
-    return inventoryData.ctbs.filter((ctb) => incomingItemCTBIds.has(ctb.id));
-  }, [inventoryData.items, inventoryData.ctbs]);
+    return ctbs.filter((ctb) => incomingItemCTBIds.has(ctb.id) || ctb.location.stack === 'INCOMING');
+  }, [inventoryItems, ctbs]);
 
-  const receiveCTB = useCallback((ctbId: string, userId?: string) => {
-    console.log(`[Inventory] Receiving CTB: ${ctbId}`);
-    // Recursively find all items in this CTB and its children
-    const findAllItemsInCTB = (currentCtbId: string): string[] => {
-      const directItems = inventoryData.items
-        .filter((item) => item.ctbId === currentCtbId)
-        .map((item) => item.id);
+  const receiveCTB = useCallback(
+    async (ctbId: string, userId?: string) => {
+      console.log(`[Inventory] Receiving CTB: ${ctbId}`);
 
-      const currentCtb = inventoryData.ctbs.find((c) => c.id === currentCtbId);
-      const childCtbIds = currentCtb?.childCTBs || [];
+      // Find a free position in a stack for the CTB
+      const findFreePosition = (): Location => {
+        for (const stackId of ["S1", "S2", "S3"] as StackId[]) {
+          const ctbsInStack = ctbs.filter((c) => c.location.stack === stackId);
+          const occupiedPositions = new Set(ctbsInStack.map((c) => c.location.position));
 
-      const childItems = childCtbIds.flatMap(findAllItemsInCTB);
-      return [...directItems, ...childItems];
-    };
-
-    const allItemIds = findAllItemsInCTB(ctbId);
-    console.log(`[Inventory] Found ${allItemIds.length} items in CTB ${ctbId} to receive`);
-
-    setInventoryData((prev) => ({
-      ...prev,
-      items: prev.items.map((item) =>
-        allItemIds.includes(item.id) && item.status === 'incoming'
-          ? {
-            ...item,
-            status: 'stock',
-            deliveredDate: new Date(),
-            history: [
-              ...item.history,
-              {
-                timestamp: new Date(),
-                action: 'delivered',
-                userId,
-                notes: `CTB ${ctbId} received at Gateway`,
-              },
-            ],
+          for (let pos = 1; pos <= 16; pos++) {
+            if (!occupiedPositions.has(pos)) {
+              return {
+                stack: stackId,
+                position: pos,
+                layer: 1,
+                path: `${stackId}-P${pos}-L1`,
+              };
+            }
           }
-          : item
-      ),
-    }));
-  }, [inventoryData.items, inventoryData.ctbs]);
+        }
+        return { stack: "S1", position: 1, layer: 1, path: "S1-P1-L1" };
+      };
+
+      const newLocation = findFreePosition();
+
+      // Find all items in this CTB
+      const findAllItemsInCTB = (currentCtbId: string): string[] => {
+        const directItems = inventoryItems
+          .filter((item) => item.ctbId === currentCtbId)
+          .map((item) => item.id);
+
+        const currentCtb = ctbs.find((c) => c.id === currentCtbId);
+        const childCtbIds = currentCtb?.childCTBs || [];
+
+        const childItems = childCtbIds.flatMap(findAllItemsInCTB);
+        return [...directItems, ...childItems];
+      };
+
+      const allItemIds = findAllItemsInCTB(ctbId);
+      console.log(
+        `[Inventory] Found ${allItemIds.length} items in CTB ${ctbId} to receive, assigning to ${newLocation.path}`,
+      );
+
+      // Update CTB
+      await localDb.updateCTB(ctbId, {
+        location: newLocation,
+        lastAccessedDate: new Date(),
+        lastAccessedBy: userId,
+      });
+
+      // Update items
+      for (const itemId of allItemIds) {
+        const historyEntry: ItemHistoryEntry = {
+          timestamp: new Date(),
+          action: "delivered",
+          userId,
+          toLocation: newLocation,
+          notes: `CTB ${ctbId} received at Gateway, stored at ${newLocation.path}`,
+        };
+        await localDb.updateItem(itemId, {
+          status: 'stock',
+          location: newLocation,
+          deliveredDate: new Date(),
+        });
+        await localDb.createHistoryEntry(itemId, historyEntry);
+      }
+
+      // Update local state
+      setCTBs((prev) =>
+        prev.map((ctb) =>
+          ctb.id === ctbId
+            ? {
+                ...ctb,
+                location: newLocation,
+                lastAccessedDate: new Date(),
+                lastAccessedBy: userId,
+              }
+            : ctb,
+        ),
+      );
+
+      setInventoryItems((prev) =>
+        prev.map((item) =>
+          allItemIds.includes(item.id) && item.status === "incoming"
+            ? {
+                ...item,
+                status: "stock",
+                location: newLocation,
+                deliveredDate: new Date(),
+                history: [
+                  ...item.history,
+                  {
+                    timestamp: new Date(),
+                    action: "delivered",
+                    userId,
+                    toLocation: newLocation,
+                    notes: `CTB ${ctbId} received at Gateway, stored at ${newLocation.path}`,
+                  },
+                ],
+              }
+            : item,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [inventoryItems, ctbs],
+  );
 
   // Analytics
   const getStackUtilization = useCallback(
     (stackId: StackId): number => {
-      const stack = inventoryData.stacks.find((s) => s.stackId === stackId);
+      const stack = stacks.find((s) => s.stackId === stackId);
       if (!stack) return 0;
 
-      const ctbsInStack = inventoryData.ctbs.filter((ctb) => ctb.location.stack === stackId);
+      const ctbsInStack = ctbs.filter((ctb) => ctb.location.stack === stackId);
       const usedVolume = ctbsInStack.reduce((sum, ctb) => sum + ctb.volume, 0);
 
       return (usedVolume / stack.totalVolume) * 100;
     },
-    [inventoryData.ctbs, inventoryData.stacks]
+    [ctbs, stacks],
   );
 
   const getExpiringItems = useCallback(
@@ -683,29 +912,96 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       const targetDate = new Date();
       targetDate.setDate(targetDate.getDate() + daysAhead);
 
-      return inventoryData.items.filter(
-        (item) => item.expiryDate && item.expiryDate <= targetDate && item.status !== 'consumed'
+      return inventoryItems.filter(
+        (item) =>
+          item.expiryDate &&
+          item.expiryDate <= targetDate &&
+          item.status !== "consumed",
       );
     },
-    [inventoryData.items]
+    [inventoryItems],
   );
 
-  const getCriticalItems = useCallback(
-    () => inventoryData.items.filter((item) => item.criticality === 'critical'),
-    [inventoryData.items]
+  // Get items that belong to categories marked as important
+  const getImportantItems = useCallback(
+    () => {
+      const importantCategoryNames = new Set(
+        categories.filter(cat => cat.isImportant).map(cat => cat.name)
+      );
+      return inventoryItems.filter((item) => importantCategoryNames.has(item.category));
+    },
+    [inventoryItems, categories],
   );
 
   const getWasteVolume = useCallback(
     () => wasteItems.reduce((sum, waste) => sum + waste.wasteVolume, 0),
-    [wasteItems]
+    [wasteItems],
+  );
+
+  const updateWasteDisposalMethod = useCallback(
+    (itemId: string, method: "return-earth" | "deep-space" | "recycle") => {
+      setWasteItems((prev) =>
+        prev.map((w) => (w.itemId === itemId ? { ...w, disposalMethod: method } : w)),
+      );
+    },
+    [],
+  );
+
+  const reorganizeStack = useCallback(
+    (stackId: StackId, mode: "manual" | "auto") => {
+      console.log(`[Inventory] Reorganizing stack: ${stackId} (Mode: ${mode})`);
+      if (mode === "auto") {
+        setCTBs((prev) => {
+          const stackCtbs = prev.filter((c) => c.location.stack === stackId);
+          const sorted = [...stackCtbs].sort((a, b) => b.mass - a.mass);
+
+          const specializedCtbs = prev.map((ctb) => {
+            if (ctb.location.stack !== stackId) return ctb;
+            const newIndex = sorted.findIndex((s) => s.id === ctb.id);
+            return {
+              ...ctb,
+              location: { ...ctb.location, position: newIndex + 1 },
+            };
+          });
+          return specializedCtbs;
+        });
+      }
+    },
+    [],
+  );
+
+  const updateStackLayout = useCallback(
+    (stackId: StackId, newCtbOrder: CTB[]) => {
+      console.log(`[Inventory] Updating layout for ${stackId}`);
+      setCTBs((prev) => {
+        const positionMap = new Map(
+          newCtbOrder.map((ctb, index) => [ctb.id, index + 1]),
+        );
+
+        const updatedCtbs = prev.map((ctb) => {
+          if (positionMap.has(ctb.id)) {
+            return {
+              ...ctb,
+              location: { ...ctb.location, position: positionMap.get(ctb.id)! },
+            };
+          }
+          return ctb;
+        });
+
+        return updatedCtbs;
+      });
+    },
+    [],
   );
 
   // Legacy API
-  const markDelivered = useCallback((id: string) => deliverItem(id), [deliverItem]);
+  const markDelivered = useCallback(
+    (id: string) => deliverItem(id),
+    [deliverItem],
+  );
 
-  const reload = useCallback(() => {
-    setInventoryData(generateDSLMInventory());
-    setWasteItems([]);
+  const reload = useCallback(async () => {
+    await loadFromDatabase();
   }, []);
 
   const value = useMemo(
@@ -715,11 +1011,15 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       markDelivered,
       reload,
 
+      // Loading state
+      isLoading,
+
       // New DSLM API
-      inventoryItems: inventoryData.items,
-      ctbs: inventoryData.ctbs,
-      stacks: inventoryData.stacks,
+      inventoryItems,
+      ctbs,
+      stacks,
       wasteItems,
+      categories,
 
       // Search & filter
       searchItems,
@@ -738,6 +1038,12 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       consumeItem,
       markAsWaste,
       relocateCTB,
+      updateItemNotes,
+      deleteItem,
+      deleteCTB,
+
+      // Category operations
+      addCategory,
 
       // CTB operations
       getChildCTBs,
@@ -749,15 +1055,22 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       // Analytics
       getStackUtilization,
       getExpiringItems,
-      getCriticalItems,
+      getImportantItems,
       getWasteVolume,
+      updateWasteDisposalMethod,
+      reorganizeStack,
+      updateStackLayout,
     }),
     [
       legacyItems,
       markDelivered,
       reload,
-      inventoryData,
+      isLoading,
+      inventoryItems,
+      ctbs,
+      stacks,
       wasteItems,
+      categories,
       searchItems,
       findItemById,
       findCTBById,
@@ -765,11 +1078,17 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       getItemsByCategory,
       getItemsByStatus,
       addItem,
+      addCTB,
+      addShipment,
       deliverItem,
       moveItem,
       consumeItem,
       markAsWaste,
       relocateCTB,
+      updateItemNotes,
+      deleteItem,
+      deleteCTB,
+      addCategory,
       getChildCTBs,
       getItemsInCTB,
       getNestingPath,
@@ -777,18 +1096,25 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       receiveCTB,
       getStackUtilization,
       getExpiringItems,
-      getCriticalItems,
+      getImportantItems,
       getWasteVolume,
+      updateWasteDisposalMethod,
       reorganizeStack,
-    ]
+      updateStackLayout,
+    ],
   );
 
-  return <InventoryContext.Provider value={value}>{children}</InventoryContext.Provider>;
+  return (
+    <InventoryContext.Provider value={value}>
+      {children}
+    </InventoryContext.Provider>
+  );
 }
 
 export function useInventory() {
   const ctx = useContext(InventoryContext);
-  if (!ctx) throw new Error('useInventory must be used within InventoryProvider');
+  if (!ctx)
+    throw new Error("useInventory must be used within InventoryProvider");
   return ctx;
 }
 

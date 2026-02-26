@@ -1,42 +1,52 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-
-import { CTBInspectorModal } from '../../components/ctb-inspector-modal';
+import { CTBViewer } from '../../components/ctb-viewer';
 import { ModuleVisualization } from '../../components/module-visualization';
-import ParallaxScrollView from '../../components/parallax-scroll-view';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
+import { Colors } from '../../constants/colors';
 import { useInventory } from '../../hooks/use-inventory';
 import { useNFC } from '../../hooks/use-nfc';
 import type { CTB, StackId } from '../../types/dslm';
 
 export default function ModuleScreen() {
-  const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById, reorganizeStack } = useInventory();
+  const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById, reorganizeStack, updateStackLayout } = useInventory();
   const [selectedStack, setSelectedStack] = useState<StackId | undefined>();
+  const [isReorganizing, setIsReorganizing] = useState(false);
+  const [swapSourceId, setSwapSourceId] = useState<string | null>(null);
+  const [tempStackCtbs, setTempStackCtbs] = useState<CTB[]>([]);
   const [scannedCTB, setScannedCTB] = useState<CTB | null>(null);
+  const [inspectedCTB, setInspectedCTB] = useState<CTB | null>(null);
   const { scanTag, isScanning, isSupported } = useNFC();
-  const insets = useSafeAreaInsets();
-  const headerHeight = 72 + insets.top;
 
   const stackDetails = selectedStack
     ? {
       stack: stacks.find(s => s.stackId === selectedStack),
-      ctbsInStack: ctbs.filter(ctb => ctb.location.stack === selectedStack),
+      // Sort by layer first, then by position within each layer
+      ctbsInStack: isReorganizing
+        ? tempStackCtbs
+        : ctbs
+            .filter(ctb => ctb.location.stack === selectedStack)
+            .sort((a, b) => {
+              // Primary sort: layer (ascending - layer 1 first)
+              const layerDiff = (a.location.layer || 1) - (b.location.layer || 1);
+              if (layerDiff !== 0) return layerDiff;
+              // Secondary sort: position (ascending)
+              return a.location.position - b.location.position;
+            }),
       utilization: getStackUtilization(selectedStack),
+      totalMass: ctbs
+        .filter(ctb => ctb.location.stack === selectedStack)
+        .reduce((sum, ctb) => sum + ctb.mass, 0),
     }
     : null;
 
   const handleScan = async () => {
     const tag = await scanTag();
     if (tag) {
-      // Try to find CTB or Item by ID (assuming tag ID matches or is mapped)
-      // In a real scenario, we'd lookup the tag ID in a DB.
-      // Here we assume tag.id might be part of the ID or we search.
-      // For prototype, let's assume the tag payload IS the ID.
-
       const id = tag.payload || tag.id;
       const ctb = findCTBById(id);
       if (ctb) {
@@ -60,37 +70,146 @@ export default function ModuleScreen() {
     }
   };
 
+  // Animated CTB Card for reorder mode
+  const AnimatedCTBCard = ({ 
+    ctb, 
+    isSelected, 
+    isReorderMode,
+    onPress,
+    children 
+  }: { 
+    ctb: CTB; 
+    isSelected: boolean; 
+    isReorderMode: boolean;
+    onPress: () => void;
+    children: React.ReactNode;
+  }) => {
+    const pulseAnim = useRef(new Animated.Value(1)).current;
+    const shakeAnim = useRef(new Animated.Value(0)).current;
+    const scaleAnim = useRef(new Animated.Value(1)).current;
+
+    useEffect(() => {
+      if (isReorderMode && !isSelected) {
+        // Gentle wobble animation for all cards in reorder mode
+        const wobble = Animated.loop(
+          Animated.sequence([
+            Animated.timing(shakeAnim, {
+              toValue: 1,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(shakeAnim, {
+              toValue: -1,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.timing(shakeAnim, {
+              toValue: 0,
+              duration: 150,
+              useNativeDriver: true,
+            }),
+            Animated.delay(2000),
+          ])
+        );
+        wobble.start();
+        return () => wobble.stop();
+      } else {
+        shakeAnim.setValue(0);
+      }
+    }, [isReorderMode, isSelected, shakeAnim]);
+
+    useEffect(() => {
+      if (isSelected) {
+        // Pulsing glow effect for selected card
+        const pulse = Animated.loop(
+          Animated.sequence([
+            Animated.timing(pulseAnim, {
+              toValue: 1.03,
+              duration: 600,
+              useNativeDriver: true,
+            }),
+            Animated.timing(pulseAnim, {
+              toValue: 1,
+              duration: 600,
+              useNativeDriver: true,
+            }),
+          ])
+        );
+        pulse.start();
+        
+        // Initial pop effect
+        Animated.spring(scaleAnim, {
+          toValue: 1.02,
+          friction: 3,
+          useNativeDriver: true,
+        }).start();
+
+        return () => pulse.stop();
+      } else {
+        pulseAnim.setValue(1);
+        Animated.spring(scaleAnim, {
+          toValue: 1,
+          friction: 5,
+          useNativeDriver: true,
+        }).start();
+      }
+    }, [isSelected, pulseAnim, scaleAnim]);
+
+    const rotate = shakeAnim.interpolate({
+      inputRange: [-1, 0, 1],
+      outputRange: ['-0.5deg', '0deg', '0.5deg'],
+    });
+
+    return (
+      <Pressable onPress={onPress}>
+        <Animated.View
+          style={[
+            styles.ctbCard,
+            isReorderMode && styles.reorgCard,
+            isSelected && styles.reorgCardSelected,
+            {
+              transform: [
+                { scale: isSelected ? pulseAnim : scaleAnim },
+                { rotate: isReorderMode ? rotate : '0deg' },
+              ],
+            },
+          ]}
+        >
+          {children}
+        </Animated.View>
+      </Pressable>
+    );
+  };
+
   return (
-    <>
-      <ParallaxScrollView
-        headerHeight={headerHeight}
-        headerBackgroundColor={{ light: '#0A0B0D', dark: '#0A0B0D' }}
-        headerImage={
-          <ThemedView style={[styles.headerBar, { height: headerHeight, paddingTop: insets.top }]}>
-            <ThemedText style={styles.headerTitle}>Module Layout</ThemedText>
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        {/* Header */}
+        <View style={styles.header}>
+          <View>
+            <ThemedText type="title" style={styles.headerTitle}>Module Layout</ThemedText>
             <ThemedText style={styles.headerSubtitle}>DSLM Stack Configuration</ThemedText>
+          </View>
+        </View>
+
+        <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+          <ModuleVisualization
+            stacks={stacks}
+            ctbs={ctbs}
+            selectedStack={selectedStack}
+            onStackPress={setSelectedStack}
+          />
+
+          <ThemedView style={styles.emptyState}>
+            <ThemedText style={styles.emptyTitle}>Select a stack to view details</ThemedText>
+            <ThemedText style={styles.emptyText}>
+              Tap on any stack above to see its CTBs and contents
+            </ThemedText>
           </ThemedView>
-        }>
+        </ScrollView>
 
-        <ModuleVisualization
-          stacks={stacks}
-          ctbs={ctbs}
-          selectedStack={selectedStack}
-          onStackPress={setSelectedStack}
-        />
-
-        <ThemedView style={styles.emptyState}>
-          <ThemedText style={styles.emptyTitle}>Select a stack to view details</ThemedText>
-          <ThemedText style={styles.emptyText}>
-            Tap on any stack above to see its CTBs and contents
-          </ThemedText>
-        </ThemedView>
-
-      </ParallaxScrollView >
-
-      {/* NFC Scan Button */}
-      {
-        isSupported && (
+        {/* NFC Scan Button */}
+        {isSupported && (
           <Pressable
             style={[styles.fab, isScanning && styles.fabScanning]}
             onPress={handleScan}
@@ -100,178 +219,302 @@ export default function ModuleScreen() {
               {isScanning ? '...' : '📡'}
             </ThemedText>
           </Pressable>
-        )
-      }
+        )}
 
-      {/* CTB Inspector Modal (for scanned items) */}
-      <CTBInspectorModal
-        visible={!!scannedCTB}
-        ctb={scannedCTB}
-        onClose={() => setScannedCTB(null)}
-      />
-
-      {/* Stack Details Modal */}
-      <Modal
-        visible={!!selectedStack}
-        animationType="slide"
-        presentationStyle="pageSheet"
-        onRequestClose={() => setSelectedStack(undefined)}
-      >
-        <ThemedView style={styles.modalContainer}>
-          {stackDetails && (
-            <>
-              {/* Modal Header */}
-              <View style={styles.modalHeader}>
-                <Pressable onPress={() => setSelectedStack(undefined)} style={styles.closeBtn}>
-                  <ThemedText style={styles.closeBtnText}>Close</ThemedText>
-                </Pressable>
-                <ThemedText style={styles.modalTitle}>{stackDetails.stack?.stackId} Details</ThemedText>
-                <Pressable
-                  onPress={() => {
-                    if (selectedStack) {
-                      reorganizeStack(selectedStack);
-                      Alert.alert('Stack Optimized', 'CTBs have been resorted and repacked.');
+        {/* Stack Details Modal */}
+        <Modal
+          visible={!!selectedStack}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setSelectedStack(undefined)}
+        >
+          <ThemedView style={styles.modalContainer}>
+            {stackDetails && (
+              <>
+                {/* Modal Header */}
+                <View style={[styles.modalHeader, isReorganizing && { backgroundColor: Colors.surfaceHover, borderBottomColor: Colors.blue }]}>
+                  <Pressable onPress={() => {
+                    if (isReorganizing) {
+                      Alert.alert('Cancel Reorganization?', 'Changes will be lost.', [
+                        { text: 'Keep Editing', style: 'cancel' },
+                        { text: 'Discard', style: 'destructive', onPress: () => { setIsReorganizing(false); setSwapSourceId(null); } }
+                      ]);
+                    } else {
+                      setSelectedStack(undefined);
                     }
-                  }}
-                  style={styles.optimizeBtn}
-                >
-                  <Ionicons name="construct-outline" size={20} color="#0F6FFF" />
-                </Pressable>
-              </View>
-
-              <ScrollView style={styles.modalContent}>
-                {/* Stats Grid */}
-                <View style={styles.statsGrid}>
-                  <View style={styles.statCard}>
-                    <ThemedText style={styles.statValue}>{stackDetails.ctbsInStack.length}</ThemedText>
-                    <ThemedText style={styles.statLabel}>CTBs</ThemedText>
-                  </View>
-                  <View style={styles.statCard}>
-                    <ThemedText style={styles.statValue}>{stackDetails.utilization.toFixed(0)}%</ThemedText>
-                    <ThemedText style={styles.statLabel}>Utilized</ThemedText>
-                  </View>
-                  <View style={styles.statCard}>
-                    <ThemedText style={styles.statValue}>{stackDetails.stack?.positions}</ThemedText>
-                    <ThemedText style={styles.statLabel}>Positions</ThemedText>
-                  </View>
-                  <View style={styles.statCard}>
-                    <ThemedText style={styles.statValue}>{stackDetails.stack?.maxLayers}</ThemedText>
-                    <ThemedText style={styles.statLabel}>Layers</ThemedText>
-                  </View>
+                  }} style={styles.closeBtn}>
+                    <ThemedText style={isReorganizing ? { color: Colors.error } : styles.closeBtnText}>{isReorganizing ? 'Cancel' : 'Close'}</ThemedText>
+                  </Pressable>
+                  <ThemedText style={styles.modalTitle}>
+                    {isReorganizing ? 'Manual Reorder' : `${stackDetails.stack?.stackId} Details`}
+                  </ThemedText>
+                  {isReorganizing ? (
+                    <Pressable
+                      onPress={() => {
+                        if (selectedStack) {
+                          updateStackLayout(selectedStack, tempStackCtbs);
+                          setIsReorganizing(false);
+                          setSwapSourceId(null);
+                          Alert.alert('Saved', 'New stack layout confirmed.');
+                        }
+                      }}
+                      style={styles.optimizeBtn}
+                    >
+                      <ThemedText style={{ color: Colors.blue, fontWeight: '700' }}>Save</ThemedText>
+                    </Pressable>
+                  ) : (
+                    <Pressable
+                      onPress={() => {
+                        if (selectedStack) {
+                          Alert.alert(
+                            'Reorganize Stack',
+                            'Choose an optimization method:',
+                            [
+                              { text: 'Cancel', style: 'cancel' },
+                              {
+                                text: 'Manual Sort',
+                                onPress: () => {
+                                  // Initialize temp state with current order
+                                  setTempStackCtbs(stackDetails.ctbsInStack);
+                                  setIsReorganizing(true);
+                                }
+                              },
+                              {
+                                text: 'Auto-Optimize',
+                                onPress: () => {
+                                  reorganizeStack(selectedStack, 'auto');
+                                  Alert.alert('Auto-Optimized', 'Stack defragmented and sorted by mass.');
+                                }
+                              }
+                            ]
+                          );
+                        }
+                      }}
+                      style={styles.optimizeBtn}
+                    >
+                      <Ionicons name="construct-outline" size={20} color={Colors.blue} />
+                    </Pressable>
+                  )}
                 </View>
 
-                <ThemedText style={styles.sectionTitle}>CTBs in {stackDetails.stack?.stackId}</ThemedText>
+                <ScrollView style={styles.modalContent}>
+                  {/* Stats Grid */}
+                  <View style={styles.statsGrid}>
+                    <View style={styles.statCard}>
+                      <ThemedText style={styles.statValue}>{stackDetails.ctbsInStack.length}</ThemedText>
+                      <ThemedText style={styles.statLabel}>CTBs</ThemedText>
+                    </View>
+                    <View style={styles.statCard}>
+                      <ThemedText style={styles.statValue}>{stackDetails.totalMass.toFixed(1)}</ThemedText>
+                      <ThemedText style={styles.statLabel}>Total kg</ThemedText>
+                    </View>
+                    <View style={styles.statCard}>
+                      <ThemedText style={styles.statValue}>{stackDetails.utilization.toFixed(0)}%</ThemedText>
+                      <ThemedText style={styles.statLabel}>Capacity</ThemedText>
+                    </View>
+                    <View style={styles.statCard}>
+                      <ThemedText style={styles.statValue}>{stackDetails.stack?.positions}</ThemedText>
+                      <ThemedText style={styles.statLabel}>Positions</ThemedText>
+                    </View>
+                  </View>
 
-                {stackDetails.ctbsInStack.length === 0 ? (
-                  <ThemedView style={styles.emptyState}>
-                    <ThemedText style={styles.emptyText}>No CTBs in this stack</ThemedText>
-                  </ThemedView>
-                ) : (
-                  <View style={styles.ctbList}>
-                    {stackDetails.ctbsInStack.map((ctb) => {
-                      const items = getItemsInCTB(ctb.id);
-                      return (
-                        <ThemedView key={ctb.id} style={styles.ctbCard}>
-                          <View style={styles.ctbHeader}>
-                            <ThemedText style={styles.ctbId}>{ctb.id}</ThemedText>
-                            <View style={styles.ctbSizeBadge}>
-                              <ThemedText style={styles.ctbSizeText}>Size: {ctb.size}</ThemedText>
-                            </View>
-                          </View>
+                  <ThemedText style={styles.sectionTitle}>
+                    {isReorganizing ? 'Tap to Select • Tap again to Swap' : `CTBs in ${stackDetails.stack?.stackId}`}
+                  </ThemedText>
 
-                          <View style={styles.ctbInfo}>
-                            <View style={styles.infoRow}>
-                              <ThemedText style={styles.infoLabel}>Location:</ThemedText>
-                              <ThemedText style={styles.infoValue}>{ctb.location.path}</ThemedText>
-                            </View>
-                            <View style={styles.infoRow}>
-                              <ThemedText style={styles.infoLabel}>Items:</ThemedText>
-                              <ThemedText style={styles.infoValue}>{items.length}</ThemedText>
-                            </View>
-                            <View style={styles.infoRow}>
-                              <ThemedText style={styles.infoLabel}>Mass:</ThemedText>
-                              <ThemedText style={styles.infoValue}>{ctb.mass} kg</ThemedText>
-                            </View>
-                            <View style={styles.infoRow}>
-                              <ThemedText style={styles.infoLabel}>Volume:</ThemedText>
-                              <ThemedText style={styles.infoValue}>{ctb.volume} m³</ThemedText>
-                            </View>
-                            <View style={styles.infoRow}>
-                              <ThemedText style={styles.infoLabel}>RFID:</ThemedText>
-                              <ThemedText style={styles.infoValue}>{ctb.rfidTag.id}</ThemedText>
-                            </View>
-                            {ctb.notes && (
-                              <View style={styles.infoRow}>
-                                <ThemedText style={styles.infoLabel}>Notes:</ThemedText>
-                                <ThemedText style={[styles.infoValue, { flex: 1 }]} numberOfLines={2}>
-                                  {ctb.notes}
-                                </ThemedText>
+                  {stackDetails.ctbsInStack.length === 0 ? (
+                    <ThemedView style={styles.emptyState}>
+                      <ThemedText style={styles.emptyText}>No CTBs in this stack</ThemedText>
+                    </ThemedView>
+                  ) : (
+                    <View style={styles.ctbList}>
+                      {stackDetails.ctbsInStack.map((ctb, index) => {
+                        const items = getItemsInCTB(ctb.id);
+                        const isSelected = swapSourceId === ctb.id;
+                        const currentLayer = ctb.location.layer || 1;
+                        const prevCtb = index > 0 ? stackDetails.ctbsInStack[index - 1] : null;
+                        const prevLayer = prevCtb ? (prevCtb.location.layer || 1) : 0;
+                        const showLayerHeader = currentLayer !== prevLayer;
+
+                        return (
+                          <React.Fragment key={ctb.id}>
+                            {showLayerHeader && (
+                              <View style={styles.layerHeader}>
+                                <View style={styles.layerHeaderLine} />
+                                <ThemedText style={styles.layerHeaderText}>Layer {currentLayer}</ThemedText>
+                                <View style={styles.layerHeaderLine} />
                               </View>
                             )}
-                          </View>
+                            <AnimatedCTBCard
+                            ctb={ctb}
+                            isSelected={isSelected}
+                            isReorderMode={isReorganizing}
+                            onPress={() => {
+                              if (isReorganizing) {
+                                if (isSelected) {
+                                  setSwapSourceId(null); // Deselect
+                                } else if (swapSourceId) {
+                                  // SWAP LOGIC
+                                  const sourceIndex = tempStackCtbs.findIndex(c => c.id === swapSourceId);
+                                  const targetIndex = tempStackCtbs.findIndex(c => c.id === ctb.id);
 
-                          {items.length > 0 && (
-                            <View style={styles.itemsList}>
-                              <ThemedText style={styles.itemsListTitle}>Items:</ThemedText>
-                              {items.slice(0, 3).map((item) => (
-                                <ThemedText key={item.id} style={styles.itemName} numberOfLines={1}>
-                                  • {item.name}
-                                </ThemedText>
-                              ))}
-                              {items.length > 3 && (
-                                <ThemedText style={styles.moreItems}>
-                                  +{items.length - 3} more items
-                                </ThemedText>
+                                  const newOrder = [...tempStackCtbs];
+                                  [newOrder[sourceIndex], newOrder[targetIndex]] = [newOrder[targetIndex], newOrder[sourceIndex]];
+
+                                  setTempStackCtbs(newOrder);
+                                  setSwapSourceId(null);
+                                } else {
+                                  setSwapSourceId(ctb.id); // Select source
+                                }
+                              } else {
+                                // Open CTB viewer
+                                setInspectedCTB(ctb);
+                              }
+                            }}
+                          >
+                              <View style={styles.ctbHeader}>
+                                <View style={styles.ctbHeaderLeft}>
+                                  <View style={styles.layerBadge}>
+                                    <ThemedText style={styles.layerBadgeText}>L{ctb.location.layer || 1}</ThemedText>
+                                  </View>
+                                  <ThemedText style={styles.ctbId}>{ctb.id}</ThemedText>
+                                </View>
+                                <View style={styles.ctbSizeBadge}>
+                                  <ThemedText style={styles.ctbSizeText}>{ctb.size}m³</ThemedText>
+                                </View>
+                              </View>
+
+                              <View style={styles.ctbInfo}>
+                                <View style={styles.infoRow}>
+                                  <ThemedText style={styles.infoLabel}>Position:</ThemedText>
+                                  <ThemedText style={styles.infoValue}>P{ctb.location.position}{ctb.size > 1 ? `-P${ctb.location.position + Math.ceil(ctb.size) - 1}` : ''} (Layer {ctb.location.layer || 1})</ThemedText>
+                                </View>
+                                {isReorganizing && (
+                                  <View style={[styles.infoRow, styles.reorgHint]}>
+                                    <Ionicons 
+                                      name={isSelected ? "swap-horizontal" : "hand-left-outline"} 
+                                      size={14} 
+                                      color={isSelected ? Colors.blue : Colors.textSecondary} 
+                                    />
+                                    <ThemedText style={[styles.infoValue, isSelected && { color: Colors.blue }]}>
+                                      {isSelected ? 'Now tap another to swap' : 'Tap to select'}
+                                    </ThemedText>
+                                  </View>
+                                )}
+                                {!isReorganizing && (
+                                  <>
+                                    <View style={styles.infoRow}>
+                                      <ThemedText style={styles.infoLabel}>Items:</ThemedText>
+                                      <ThemedText style={styles.infoValue}>{items.length}</ThemedText>
+                                    </View>
+                                    <View style={styles.infoRow}>
+                                      <ThemedText style={styles.infoLabel}>Mass:</ThemedText>
+                                      <ThemedText style={styles.infoValue}>{ctb.mass} kg</ThemedText>
+                                    </View>
+                                    <View style={styles.infoRow}>
+                                      <ThemedText style={styles.infoLabel}>Volume:</ThemedText>
+                                      <ThemedText style={styles.infoValue}>{ctb.volume} m³</ThemedText>
+                                    </View>
+                                  </>
+                                )}
+                              </View>
+
+                              {!isReorganizing && items.length > 0 && (
+                                <View style={styles.itemsList}>
+                                  <ThemedText style={styles.itemsListTitle}>Items:</ThemedText>
+                                  {items.slice(0, 3).map((item) => (
+                                    <ThemedText key={item.id} style={styles.itemName} numberOfLines={1}>
+                                      • {item.name}
+                                    </ThemedText>
+                                  ))}
+                                  {items.length > 3 && (
+                                    <ThemedText style={styles.moreItems}>
+                                      +{items.length - 3} more items
+                                    </ThemedText>
+                                  )}
+                                </View>
                               )}
-                            </View>
-                          )}
-                        </ThemedView>
-                      );
-                    })}
-                  </View>
-                )}
-              </ScrollView>
-            </>
-          )}
-        </ThemedView>
-      </Modal>
-    </>
+                          </AnimatedCTBCard>
+                          </React.Fragment>
+                        );
+
+                      })}
+                    </View>
+                  )}
+                </ScrollView>
+
+                {/* CTB Viewer inside the modal to appear on top */}
+                <CTBViewer
+                  visible={!!inspectedCTB}
+                  ctb={inspectedCTB}
+                  onClose={() => {
+                    setInspectedCTB(null);
+                  }}
+                />
+              </>
+            )}
+          </ThemedView>
+        </Modal>
+
+        {/* CTB Viewer for NFC scanned CTBs (outside modal) */}
+        <CTBViewer
+          visible={!!scannedCTB && !selectedStack}
+          ctb={scannedCTB}
+          onClose={() => {
+            setScannedCTB(null);
+          }}
+        />
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerBar: {
-    height: 72,
-    paddingHorizontal: 12,
-    justifyContent: 'center',
+  container: {
+    flex: 1,
+    backgroundColor: Colors.background,
+  },
+  safeArea: {
+    flex: 1,
+  },
+  header: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.border,
   },
   headerTitle: {
-    fontSize: 20,
-    fontWeight: '700',
-    marginBottom: 4,
+    fontSize: 24,
+    // inherited from type="title"
   },
   headerSubtitle: {
-    fontSize: 13,
-    opacity: 0.7,
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 4,
+  },
+  contentContainer: {
+    paddingTop: 16,
+    paddingHorizontal: 16,
+    paddingBottom: 20,
   },
   modalContainer: {
     flex: 1,
-    backgroundColor: '#0A0B0D',
+    backgroundColor: Colors.background,
   },
   modalHeader: {
     padding: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#2A2B2E',
+    borderBottomColor: Colors.border,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#111214',
+    backgroundColor: Colors.surface,
   },
   closeBtn: {
     padding: 8,
   },
   closeBtnText: {
-    color: '#0F6FFF',
+    color: Colors.blue,
     fontSize: 16,
     fontWeight: '700',
   },
@@ -295,7 +538,7 @@ const styles = StyleSheet.create({
   statCard: {
     flex: 1,
     minWidth: 80,
-    backgroundColor: '#111214',
+    backgroundColor: Colors.surface,
     padding: 12,
     borderRadius: 8,
     alignItems: 'center',
@@ -303,7 +546,7 @@ const styles = StyleSheet.create({
   statValue: {
     fontSize: 24,
     fontWeight: '700',
-    color: '#0F6FFF',
+    color: Colors.blue,
     marginBottom: 4,
   },
   statLabel: {
@@ -320,12 +563,12 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   ctbCard: {
-    backgroundColor: '#111214',
+    backgroundColor: Colors.surface,
     borderRadius: 10,
     padding: 14,
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#2A2B2E',
+    borderColor: Colors.border,
   },
   ctbHeader: {
     flexDirection: 'row',
@@ -333,22 +576,40 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
   },
+  ctbHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  layerBadge: {
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  layerBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.textSecondary,
+  },
   ctbId: {
     fontSize: 15,
     fontWeight: '700',
   },
   ctbSizeBadge: {
-    backgroundColor: '#0F6FFF20',
+    backgroundColor: Colors.blueGlow,
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#0F6FFF40',
+    borderColor: Colors.blueGlow,
   },
   ctbSizeText: {
     fontSize: 11,
     fontWeight: '600',
-    color: '#0F6FFF',
+    color: Colors.blue,
   },
   ctbInfo: {
     gap: 6,
@@ -370,7 +631,7 @@ const styles = StyleSheet.create({
     marginTop: 12,
     paddingTop: 12,
     borderTopWidth: 1,
-    borderTopColor: '#2A2B2E',
+    borderTopColor: Colors.border,
   },
   itemsListTitle: {
     fontSize: 12,
@@ -413,7 +674,7 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    backgroundColor: '#0F6FFF',
+    backgroundColor: Colors.blue,
     alignItems: 'center',
     justifyContent: 'center',
     elevation: 5,
@@ -428,5 +689,45 @@ const styles = StyleSheet.create({
   },
   fabIcon: {
     fontSize: 24,
+  },
+  reorgCard: {
+    borderStyle: 'dashed',
+    borderColor: Colors.blue,
+    opacity: 0.9,
+  },
+  reorgCardSelected: {
+    borderColor: Colors.blue,
+    borderWidth: 2,
+    borderStyle: 'solid',
+    backgroundColor: Colors.blueGlow,
+    opacity: 1,
+    shadowColor: Colors.blue,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  reorgHint: {
+    marginTop: 8,
+    gap: 6,
+  },
+  layerHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+    marginBottom: 12,
+    gap: 12,
+  },
+  layerHeaderLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: Colors.border,
+  },
+  layerHeaderText: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
 });

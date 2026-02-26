@@ -1,827 +1,931 @@
-import { Image } from 'expo-image';
-import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Ionicons } from "@expo/vector-icons";
+import { Image } from "expo-image";
+import { useRouter } from "expo-router";
+import React, { useMemo, useState } from "react";
+import {
+  Alert,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  View,
+} from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
-import { Ionicons } from '@expo/vector-icons';
-import AddItemModal from '../../components/add-item-modal';
-import ItemDetailModal from '../../components/item-detail-modal';
-import ParallaxScrollView from '../../components/parallax-scroll-view';
-import { Colors } from '../../constants/colors';
-import { useAuth } from '../../contexts/auth-context';
-import { useInventory } from '../../hooks/use-inventory';
-import { useNFC } from '../../hooks/use-nfc';
-import type { InventoryItem } from '../../types/dslm';
+import { CTBViewer } from "../../components/ctb-viewer";
+import { NFCScannerModal } from "../../components/nfc-scanner-modal";
+import { ThemedText } from "../../components/themed-text";
+import { ThemedView } from "../../components/themed-view";
+import { Colors } from "../../constants/colors";
+import { useAuth } from "../../contexts/auth-context";
+import { useInventory } from "../../hooks/use-inventory";
+import { useNFC, ScannedTag } from "../../hooks/use-nfc";
+import type { CTB, InventoryItem } from "../../types/dslm";
 
 export default function HomeScreen() {
   const {
     inventoryItems,
     ctbs,
-    getCriticalItems,
+    wasteItems,
+    getImportantItems,
     getExpiringItems,
+    getIncomingCTBs,
+    getWasteVolume,
+    findCTBById,
   } = useInventory();
-  const { user, login } = useAuth();
-  const { scanTag, isSupported } = useNFC();
+  const { user, logout } = useAuth();
+  const router = useRouter();
+  const { scanTag, isSupported, isScanning } = useNFC();
 
-  const [searchQuery, setSearchQuery] = useState('');
-  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set(['all']));
-  const [isAddItemVisible, setIsAddItemVisible] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
+  const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
+  const [activeFilter, setActiveFilter] = useState<
+    "all" | "ctbs" | "important" | "expiring"
+  >("all");
 
-  const handleScan = async () => {
-    const tag = await scanTag();
-    if (tag) {
-      setSearchQuery(tag.id);
-      Alert.alert('Item Scanned', `Filtered for tag: ${tag.id}`);
+  // NFC Scanner Modal state
+  const [showNFCScanner, setShowNFCScanner] = useState(false);
+
+  // Handle NFC scan result - find and open matching CTB/Item
+  const handleNFCScanSuccess = (tag: ScannedTag) => {
+    const tagId = tag.payload || tag.id;
+
+    // Try to find matching CTB first (check both RFID tag ID and CTB ID)
+    let matchedCTB = ctbs.find(
+      (ctb) =>
+        ctb.rfidTag?.id === tagId ||
+        ctb.id === tagId ||
+        ctb.id.includes(tagId)
+    );
+
+    // Also try finding by NDEF payload (the written data)
+    if (!matchedCTB) {
+      matchedCTB = ctbs.find((ctb) =>
+        tagId.includes(ctb.id) || ctb.id.includes(tagId)
+      );
     }
+
+    if (matchedCTB) {
+      setSelectedCTB(matchedCTB);
+      setSelectedItem(null);
+      return;
+    }
+
+    // Try to find matching item by RFID tag
+    const matchedItem = inventoryItems.find(
+      (item) =>
+        item.rfidTag?.id === tagId ||
+        item.barcode === tagId ||
+        item.id === tagId,
+    );
+    if (matchedItem) {
+      // Find the item's CTB and open viewer with item focused
+      const itemCTB = findCTBById(matchedItem.ctbId);
+      if (itemCTB) setSelectedCTB(itemCTB);
+      setSelectedItem(matchedItem);
+      return;
+    }
+
+    // No match found - show alert
+    Alert.alert(
+      "Tag Not Found",
+      `No CTB or item found matching tag: ${tagId}`,
+      [
+        { text: "Search", onPress: () => setSearchQuery(tagId) },
+        { text: "OK", style: "cancel" }
+      ]
+    );
   };
 
-  const categories = useMemo(
-    () => [
-      { id: 'all', label: 'All Items' },
-      { id: 'food', label: 'Food & Meals' },
-      { id: 'water', label: 'Water' },
-      { id: 'scientific-equipment', label: 'Scientific Equipment' },
-      { id: 'lunar-equipment', label: 'Lunar Equipment' },
-      { id: 'medical', label: 'Medical' },
-      { id: 'spare-parts', label: 'Spare Parts' },
-      { id: 'clothing', label: 'Clothing' },
-      { id: 'hygiene', label: 'Hygiene' },
-      { id: 'misc', label: 'Miscellaneous' },
-    ],
-    []
+  // Legacy scan handler for header button
+  const handleScan = () => {
+    setShowNFCScanner(true);
+  };
+
+  const handleLogout = () => {
+    Alert.alert("Logout", "Are you sure?", [
+      { text: "Cancel", style: "cancel" },
+      {
+        text: "Logout",
+        style: "destructive",
+        onPress: () => {
+          logout();
+          router.replace("/");
+        },
+      },
+    ]);
+  };
+
+  const incomingCTBs = useMemo(() => getIncomingCTBs(), [getIncomingCTBs]);
+
+  const wasteAndConsumedCount = useMemo(
+    () => inventoryItems.filter((i) => i.status === 'waste' || i.status === 'consumed').length,
+    [inventoryItems],
   );
 
-  const [activeFilter, setActiveFilter] = useState<'all' | 'critical' | 'expiring'>('all');
+  const stats = useMemo(
+    () => ({
+      totalItems: inventoryItems.length,
+      totalCTBs: ctbs.length,
+      importantItems: getImportantItems().length,
+      expiringItems: getExpiringItems(30).length,
+    }),
+    [inventoryItems, ctbs, getImportantItems, getExpiringItems],
+  );
 
-  const searchFilteredItems = useMemo(() => {
+  const filteredItems = useMemo(() => {
     let items = inventoryItems;
-
-    // Apply Status Filter
-    if (activeFilter === 'critical') {
-      items = getCriticalItems();
-    } else if (activeFilter === 'expiring') {
-      items = getExpiringItems(30);
-    }
+    if (activeFilter === "important") items = getImportantItems();
+    else if (activeFilter === "expiring") items = getExpiringItems(30);
 
     if (!searchQuery) return items;
-
     const query = searchQuery.toLowerCase();
     return items.filter(
-      item =>
+      (item) =>
         item.name.toLowerCase().includes(query) ||
         item.description.toLowerCase().includes(query) ||
-        item.location.path.toLowerCase().includes(query)
+        item.location.path.toLowerCase().includes(query) ||
+        item.ctbId.toLowerCase().includes(query),
     );
-  }, [inventoryItems, searchQuery, activeFilter, getCriticalItems, getExpiringItems]);
+  }, [
+    inventoryItems,
+    searchQuery,
+    activeFilter,
+    getImportantItems,
+    getExpiringItems,
+  ]);
 
-  const categorizedItems = useMemo(() => {
-    const grouped: Record<string, { incoming: InventoryItem[]; stock: InventoryItem[] }> = {};
-
-    categories.forEach(cat => {
-      grouped[cat.id] = { incoming: [], stock: [] };
-    });
-
-    searchFilteredItems.forEach(item => {
-      const category = item.category;
-
-      if (grouped[category]) {
-        if (item.status === 'incoming') {
-          grouped[category].incoming.push(item);
-        } else if (item.status === 'stock' || item.status === 'delivered') {
-          grouped[category].stock.push(item);
-        }
-      }
-
-      if (item.status === 'incoming') {
-        grouped.all.incoming.push(item);
-      } else if (item.status === 'stock' || item.status === 'delivered') {
-        grouped.all.stock.push(item);
-      }
-    });
-
-    return grouped;
-  }, [searchFilteredItems, categories]);
-
-  const stats = useMemo(() => {
-    const totalItems = inventoryItems.length;
-    const totalCTBs = ctbs.length;
-    const criticalItems = getCriticalItems().length;
-    const expiringItems = getExpiringItems(30).length;
-
-    return { totalItems, totalCTBs, criticalItems, expiringItems };
-  }, [inventoryItems, ctbs, getCriticalItems, getExpiringItems]);
-
-  const recentActivity = useMemo(() => {
-    const allHistory = inventoryItems.flatMap(item =>
-      item.history.map(entry => ({
-        ...entry,
-        itemName: item.name,
-        itemId: item.id
-      }))
+  const groupedItems = useMemo(() => {
+    const incoming = filteredItems.filter((i) => i.status === "incoming");
+    const stock = filteredItems.filter(
+      (i) => i.status === "stock" || i.status === "delivered",
     );
-    return allHistory
-      .sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime())
-      .slice(0, 5);
-  }, [inventoryItems]);
+    return { incoming, stock };
+  }, [filteredItems]);
 
-  const toggleCategory = (categoryId: string) => {
-    setExpandedCategories(prev => {
-      const next = new Set(prev);
-      if (next.has(categoryId)) {
-        next.delete(categoryId);
-      } else {
-        next.add(categoryId);
-      }
-      return next;
-    });
+  const handleItemPress = (item: InventoryItem) => {
+    const itemCTB = findCTBById(item.ctbId);
+    if (itemCTB) setSelectedCTB(itemCTB);
+    setSelectedItem(item);
   };
 
-  const getStatusColor = (status: string) => {
-    const colors: Record<string, string> = {
-      incoming: Colors.blue,
-      stock: Colors.blue,
-      delivered: Colors.blue,
-      'in-use': Colors.blue,
-      consumed: Colors.textTertiary,
-      waste: Colors.red,
-    };
-    return colors[status] || Colors.textTertiary;
+  const handleCTBPress = (ctb: CTB) => {
+    setSelectedCTB(ctb);
+    setSelectedItem(null);
   };
 
-  const renderItemTile = (item: InventoryItem, showDeliverButton: boolean = false) => (
-    <View key={item.id} style={styles.tileWrap}>
-      <Pressable onPress={() => setSelectedItem(item)}>
-        <View style={styles.tile}>
-          <Image
-            source={{
-              uri: `https://via.placeholder.com/60/0A0A0A/FFFFFF?text=${encodeURIComponent(item.name.split(' ')[0])}`
-            }}
-            style={styles.tileImage}
+  const renderCTB = (ctb: CTB) => {
+    const itemCount = inventoryItems.filter((i) => i.ctbId === ctb.id).length;
+    // Check if CTB has a real NFC tag assigned (not just the default RFID-xxx)
+    const hasNFCTag = ctb.rfidTag?.id && !ctb.rfidTag.id.startsWith('RFID-');
+
+    return (
+      <Pressable
+        key={ctb.id}
+        style={styles.itemRow}
+        onPress={() => handleCTBPress(ctb)}
+      >
+        <View style={[styles.itemIcon, { backgroundColor: Colors.blueGlow }]}>
+          <Ionicons name="cube-outline" size={20} color={Colors.blue} />
+        </View>
+        <View style={styles.itemInfo}>
+          <View style={styles.itemNameRow}>
+            <ThemedText numberOfLines={1} style={styles.itemName}>
+              CTB-{ctb.size} · {ctb.id.slice(-6).toUpperCase()}
+            </ThemedText>
+            {hasNFCTag && (
+              <View style={styles.nfcBadge}>
+                <Ionicons name="radio-outline" size={10} color={Colors.success} />
+              </View>
+            )}
+          </View>
+          <ThemedText style={styles.itemMeta}>{ctb.location.path}</ThemedText>
+        </View>
+        <View style={styles.itemRight}>
+          <Text style={styles.itemQty}>{itemCount} items</Text>
+          <Ionicons
+            name="chevron-forward"
+            size={16}
+            color={Colors.textTertiary}
           />
-          <View style={styles.qtyBadge}>
-            <Text style={styles.qtyText}>{item.quantity}</Text>
-          </View>
-          <View style={[styles.statusBadge, { backgroundColor: getStatusColor(item.status) }]}>
-            <Text style={styles.statusBadgeText}>{item.status}</Text>
-          </View>
         </View>
       </Pressable>
-      <Text numberOfLines={2} style={styles.tileLabel}>
-        {item.name}
-      </Text>
-      {item.status === 'incoming' && (
-        <Text style={styles.ctbLabel}>
-          In: {item.ctbId}
-        </Text>
-      )}
-    </View>
+    );
+  };
+
+  const renderItem = (item: InventoryItem) => (
+    <Pressable
+      key={item.id}
+      style={styles.itemRow}
+      onPress={() => handleItemPress(item)}
+    >
+      <View
+        style={[
+          styles.itemIcon,
+          item.criticality === "critical" && styles.itemIconCritical,
+        ]}
+      >
+        <Ionicons
+          name={item.status === "incoming" ? "arrow-down-circle" : "cube"}
+          size={20}
+          color={item.criticality === "critical" ? Colors.red : Colors.blue}
+        />
+      </View>
+      <View style={styles.itemInfo}>
+        <ThemedText numberOfLines={1} style={styles.itemName}>
+          {item.name}
+        </ThemedText>
+        <ThemedText style={styles.itemMeta}>{item.location.path}</ThemedText>
+      </View>
+      <View style={styles.itemRight}>
+        <Text style={styles.itemQty}>×{item.quantity}</Text>
+        <Ionicons
+          name="chevron-forward"
+          size={16}
+          color={Colors.textTertiary}
+        />
+      </View>
+    </Pressable>
   );
 
-  const renderStatusGroup = (
-    status: 'incoming' | 'stock',
-    items: InventoryItem[],
-    label: string
-  ) => {
-    if (items.length === 0) return null;
-
-    return (
-      <View style={styles.statusGroup}>
-        <View style={styles.statusGroupHeader}>
-          <View
-            style={[
-              styles.statusIndicator,
-              status === 'incoming' ? styles.incomingIndicator : styles.deliveredIndicator,
-            ]}
-          />
-          <Text style={styles.statusGroupTitle}>{label}</Text>
-          <Text style={styles.statusCount}>({items.length})</Text>
-        </View>
-
-        <View style={styles.grid}>
-          {items.map(item => renderItemTile(item, status === 'incoming'))}
-        </View>
-      </View>
-    );
-  };
-
-  const renderCategory = (category: { id: string; label: string }) => {
-    const isExpanded = expandedCategories.has(category.id);
-    const items = categorizedItems[category.id];
-    const totalItems = items.incoming.length + items.stock.length;
-
-    if (totalItems === 0 && category.id !== 'all') return null;
-
-    return (
-      <View key={category.id} style={styles.categorySection}>
-        <Pressable
-          onPress={() => toggleCategory(category.id)}
-          style={({ pressed }) => [
-            styles.categoryHeader,
-            pressed && styles.categoryHeaderPressed,
-          ]}>
-          <View style={styles.categoryHeaderLeft}>
-            <View style={styles.categoryInfo}>
-              <Text numberOfLines={1} ellipsizeMode="tail" style={styles.categoryTitle}>
-                {category.label}
-              </Text>
-              <Text style={styles.categorySubtitle}>
-                {totalItems} {totalItems === 1 ? 'item' : 'items'}
-              </Text>
-            </View>
-          </View>
-
-          <View style={styles.categoryStats}>
-            {items.incoming.length > 0 && (
-              <View style={styles.incomingBadge}>
-                <Text style={[styles.statBadgeText, styles.incomingText]}>
-                  {items.incoming.length}
-                </Text>
-              </View>
-            )}
-            {items.stock.length > 0 && (
-              <View style={styles.deliveredBadge}>
-                <Text style={[styles.statBadgeText, styles.deliveredText]}>
-                  {items.stock.length}
-                </Text>
-              </View>
-            )}
-          </View>
-
-          <Text style={styles.expandIcon}>
-            {isExpanded ? '▼' : '▶'}
-          </Text>
-        </Pressable>
-
-        {isExpanded && (
-          <View style={styles.categoryContent}>
-            {totalItems === 0 ? (
-              <View style={styles.emptyState}>
-                <Text style={styles.emptyText}>No items in this category</Text>
-              </View>
-            ) : (
-              <>
-                {renderStatusGroup('incoming', items.incoming, 'Incoming Packages')}
-                {renderStatusGroup('stock', items.stock, 'Delivered / In Stock')}
-              </>
-            )}
-          </View>
-        )}
-      </View>
-    );
-  };
-
   return (
-    <SafeAreaView style={{ flex: 1, backgroundColor: Colors.background }}>
-      <ParallaxScrollView
-        headerHeight={100}
-        headerBackgroundColor={{ light: Colors.surface, dark: Colors.surface }}
-        headerImage={
-          <View style={styles.headerBar}>
-            <View>
-              <Text style={styles.headerTitle}>
-                DSLM Inventory
-              </Text>
-              <Text style={styles.headerSubtitle}>
-                Deep Space Logistics Module
-              </Text>
-            </View>
-            <View style={styles.headerButtons}>
-              {isSupported && (
-                <Pressable style={styles.iconButton} onPress={handleScan}>
-                  <Ionicons name="scan" size={24} color={Colors.blue} />
-                </Pressable>
-              )}
-              <Pressable
-                style={styles.profileButton}
-                onPress={() => {
-                  Alert.alert(
-                    'Switch Role',
-                    `Current: ${user?.name} (${user?.role})`,
-                    [
-                      { text: 'Ground Crew', onPress: () => login('ground-crew') },
-                      { text: 'Astronaut', onPress: () => login('astronaut') },
-                      { text: 'Cancel', style: 'cancel' }
-                    ]
-                  );
-                }}
-              >
-                <Image
-                  source={{ uri: 'https://ui-avatars.com/api/?name=' + (user?.name || 'User') + '&background=0D8ABC&color=fff' }}
-                  style={styles.profileImage}
+    <ThemedView style={styles.container}>
+      <SafeAreaView style={styles.safeArea} edges={['top']}>
+        <View style={styles.header}>
+          <Pressable onPress={handleLogout}>
+            <Image
+              source={{
+                uri: `https://ui-avatars.com/api/?name=${user?.name || "U"}&background=0F6FFF&color=fff&size=64`,
+              }}
+              style={styles.avatar}
+            />
+          </Pressable>
+
+          <View style={styles.searchBar}>
+            <Ionicons name="search" size={16} color={Colors.textTertiary} />
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Find item or location..."
+              placeholderTextColor={Colors.textTertiary}
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              returnKeyType="search"
+            />
+            {searchQuery.length > 0 && (
+              <Pressable onPress={() => setSearchQuery("")} hitSlop={8}>
+                <Ionicons
+                  name="close-circle"
+                  size={18}
+                  color={Colors.textTertiary}
                 />
               </Pressable>
-            </View>
-          </View>
-        }>
-
-        {/* Stats */}
-        <View style={styles.statsRow}>
-          <Pressable
-            style={[styles.statCard, activeFilter === 'all' && styles.statCardActive]}
-            onPress={() => setActiveFilter('all')}
-          >
-            <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.totalItems}</Text>
-            <Text style={[styles.statLabel, activeFilter === 'all' && styles.statLabelActive]}>Total Items</Text>
-          </Pressable>
-          <View style={styles.statCard}>
-            <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.totalCTBs}</Text>
-            <Text style={styles.statLabel}>CTBs</Text>
-          </View>
-          <Pressable
-            style={[styles.statCard, activeFilter === 'critical' && styles.statCardActive]}
-            onPress={() => setActiveFilter(activeFilter === 'critical' ? 'all' : 'critical')}
-          >
-            <View style={styles.statHeader}>
-              <Text style={[styles.statValue, { color: Colors.red }]}>{stats.criticalItems}</Text>
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  Alert.alert(
-                    'Critical Items',
-                    'Essential supplies marked as high priority for mission success. These items are tracked closely to ensure availability.',
-                    [{ text: 'Got it' }]
-                  );
-                }}
-                hitSlop={10}
-              >
-                <Ionicons name="information-circle-outline" size={18} color={Colors.textSecondary} style={{ opacity: 0.7 }} />
-              </Pressable>
-            </View>
-            <Text style={[styles.statLabel, activeFilter === 'critical' && styles.statLabelActive]}>Critical</Text>
-          </Pressable>
-          <Pressable
-            style={[styles.statCard, activeFilter === 'expiring' && styles.statCardActive]}
-            onPress={() => setActiveFilter(activeFilter === 'expiring' ? 'all' : 'expiring')}
-          >
-            <View style={styles.statHeader}>
-              <Text style={[styles.statValue, { color: Colors.blue }]}>{stats.expiringItems}</Text>
-              <Pressable
-                onPress={(e) => {
-                  e.stopPropagation();
-                  Alert.alert(
-                    'Expiring Items',
-                    'Consumables (food, medical supplies) that will expire within the next 30 days. Prioritize using these items.',
-                    [{ text: 'Got it' }]
-                  );
-                }}
-                hitSlop={10}
-              >
-                <Ionicons name="information-circle-outline" size={18} color={Colors.textSecondary} style={{ opacity: 0.7 }} />
-              </Pressable>
-            </View>
-            <Text style={[styles.statLabel, activeFilter === 'expiring' && styles.statLabelActive]}>Expiring</Text>
-          </Pressable>
-        </View>
-
-        {/* Recent Activity */}
-        < View style={styles.sectionContainer} >
-          <Text style={styles.sectionTitle}>Recent Activity</Text>
-          <View style={styles.activityList}>
-            {recentActivity.map((activity, index) => (
-              <View key={`${activity.itemId}-${index}`} style={styles.activityCard}>
-                <View style={styles.activityHeader}>
-                  <Text style={styles.activityAction}>{activity.action.toUpperCase()}</Text>
-                  <Text style={styles.activityTime}>
-                    {activity.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                  </Text>
-                </View>
-                <Text style={styles.activityItemName} numberOfLines={1}>{activity.itemName}</Text>
-                {activity.timeTaken && (
-                  <View style={styles.timeTakenBadge}>
-                    <Text style={styles.timeTakenText}>⏱ {activity.timeTaken}s</Text>
-                  </View>
-                )}
-              </View>
-            ))}
-            {recentActivity.length === 0 && (
-              <Text style={styles.emptyText}>No recent activity</Text>
             )}
           </View>
-        </View >
 
-        {/* Search */}
-        < View style={styles.searchContainer} >
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Search items, CTBs, locations..."
-            placeholderTextColor={Colors.textTertiary}
-            value={searchQuery}
-            onChangeText={setSearchQuery}
-          />
-        </View >
+          {isSupported && (
+            <Pressable
+              style={[styles.scanBtn, isScanning && styles.scanBtnActive]}
+              onPress={handleScan}
+              disabled={isScanning}
+            >
+              <Ionicons
+                name="scan"
+                size={22}
+                color={isScanning ? Colors.background : Colors.blue}
+              />
+            </Pressable>
+          )}
+        </View>
 
-        {/* Categories */}
-        < View style={styles.contentArea} >
-          <ScrollView showsVerticalScrollIndicator={false}>
-            {categories.map(category => renderCategory(category))}
-          </ScrollView>
-        </View >
-      </ParallaxScrollView >
+        <ScrollView
+          style={{ flex: 1 }}
+          contentContainerStyle={styles.content}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.statsRow}>
+            <Pressable
+              style={[
+                styles.statChip,
+                activeFilter === "all" && styles.statChipActive,
+              ]}
+              onPress={() => setActiveFilter("all")}
+            >
+              <ThemedText
+                style={[
+                  styles.statNum,
+                  activeFilter === "all" && styles.statNumActive,
+                ]}
+              >
+                {stats.totalItems}
+              </ThemedText>
+              <ThemedText style={styles.statLabel}>Items</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.statChip,
+                activeFilter === "ctbs" && styles.statChipActive,
+              ]}
+              onPress={() =>
+                setActiveFilter(activeFilter === "ctbs" ? "all" : "ctbs")
+              }
+            >
+              <ThemedText
+                style={[
+                  styles.statNum,
+                  activeFilter === "ctbs" && styles.statNumActive,
+                ]}
+              >
+                {stats.totalCTBs}
+              </ThemedText>
+              <ThemedText style={styles.statLabel}>CTBs</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.statChip,
+                activeFilter === "important" && styles.statChipActive,
+              ]}
+              onPress={() =>
+                setActiveFilter(
+                  activeFilter === "important" ? "all" : "important",
+                )
+              }
+            >
+              <ThemedText
+                style={[
+                  styles.statNum,
+                  stats.importantItems > 0 && { color: Colors.warning },
+                ]}
+              >
+                {stats.importantItems}
+              </ThemedText>
+              <ThemedText style={styles.statLabel}>Important</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[
+                styles.statChip,
+                activeFilter === "expiring" && styles.statChipActive,
+              ]}
+              onPress={() =>
+                setActiveFilter(
+                  activeFilter === "expiring" ? "all" : "expiring",
+                )
+              }
+            >
+              <ThemedText
+                style={[
+                  styles.statNum,
+                  activeFilter === "expiring" && styles.statNumActive,
+                ]}
+              >
+                {stats.expiringItems}
+              </ThemedText>
+              <ThemedText style={styles.statLabel}>Expiring</ThemedText>
+            </Pressable>
+          </View>
 
-      {/* Add Item FAB */}
-      <Pressable
-        style={styles.fab}
-        onPress={() => setIsAddItemVisible(true)}
-      >
-        <Ionicons name="add" size={32} color="#FFFFFF" />
-      </Pressable>
+          {activeFilter !== "ctbs" && groupedItems.incoming.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons
+                  name="arrow-down-circle"
+                  size={18}
+                  color={Colors.blue}
+                />
+                <ThemedText style={styles.sectionTitle}>Incoming</ThemedText>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {groupedItems.incoming.length}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.list}>
+                {groupedItems.incoming.slice(0, 5).map(renderItem)}
+                {groupedItems.incoming.length > 5 && (
+                  <Pressable
+                    style={styles.showMore}
+                    onPress={() => router.push("/incoming")}
+                  >
+                    <ThemedText style={styles.showMoreText}>
+                      View all {groupedItems.incoming.length} incoming →
+                    </ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          )}
 
-      <AddItemModal
-        visible={isAddItemVisible}
-        onClose={() => setIsAddItemVisible(false)}
-      />
+          {activeFilter === "ctbs" && ctbs.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="cube-outline" size={18} color={Colors.blue} />
+                <ThemedText style={styles.sectionTitle}>All CTBs</ThemedText>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>{ctbs.length}</Text>
+                </View>
+              </View>
+              <View style={styles.list}>
+                {ctbs.slice(0, 10).map(renderCTB)}
+                {ctbs.length > 10 && (
+                  <Pressable
+                    style={styles.showMore}
+                    onPress={() => router.push("/module")}
+                  >
+                    <ThemedText style={styles.showMoreText}>
+                      View all {ctbs.length} CTBs in Storage →
+                    </ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          )}
 
-      <ItemDetailModal
-        visible={!!selectedItem}
-        item={selectedItem}
-        onClose={() => setSelectedItem(null)}
-      />
-    </SafeAreaView >
+          {activeFilter !== "ctbs" && groupedItems.stock.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="cube" size={18} color={Colors.success} />
+                <ThemedText style={styles.sectionTitle}>In Stock</ThemedText>
+                <View style={styles.badge}>
+                  <Text style={styles.badgeText}>
+                    {groupedItems.stock.length}
+                  </Text>
+                </View>
+              </View>
+              <View style={styles.list}>
+                {groupedItems.stock.slice(0, 10).map(renderItem)}
+                {groupedItems.stock.length > 10 && (
+                  <Pressable
+                    style={styles.showMore}
+                    onPress={() => router.push("/delivered")}
+                  >
+                    <ThemedText style={styles.showMoreText}>
+                      View all {groupedItems.stock.length} items →
+                    </ThemedText>
+                  </Pressable>
+                )}
+              </View>
+            </View>
+          )}
+
+          {/* Incoming Section - For astronauts/mission specialists */}
+          {(user?.role === "astronaut" || user?.role === "mission-specialist" || user?.role === "admin") &&
+            incomingCTBs.length > 0 && (
+            <View style={styles.section}>
+              <Pressable
+                style={styles.sectionLink}
+                onPress={() => router.push("/incoming")}
+              >
+                <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
+                  <Ionicons
+                    name="download-outline"
+                    size={18}
+                    color={Colors.warning}
+                  />
+                  <ThemedText style={styles.sectionTitle}>Receive Incoming</ThemedText>
+                  <View style={styles.incomingBadge}>
+                    <ThemedText style={styles.incomingBadgeText}>
+                      {incomingCTBs.length}
+                    </ThemedText>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={Colors.textTertiary}
+                  />
+                </View>
+                <ThemedText style={styles.sectionDescription}>
+                  Review and receive incoming CTBs into inventory
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Waste Management Section */}
+          {wasteAndConsumedCount > 0 && (
+            <View style={styles.section}>
+              <Pressable
+                style={styles.sectionLink}
+                onPress={() => router.push("/waste")}
+              >
+                <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
+                  <Ionicons
+                    name="trash-outline"
+                    size={18}
+                    color={Colors.error}
+                  />
+                  <ThemedText style={styles.sectionTitle}>
+                    Waste Management
+                  </ThemedText>
+                  <View style={styles.wasteBadge}>
+                    <ThemedText style={styles.wasteBadgeText}>
+                      {wasteAndConsumedCount}
+                    </ThemedText>
+                  </View>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={Colors.textTertiary}
+                  />
+                </View>
+                <ThemedText style={styles.sectionDescription}>
+                  {(getWasteVolume() * 1000).toFixed(1)}L waste volume tracked
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Logs Section */}
+          <View style={styles.section}>
+            <Pressable
+              style={styles.sectionLink}
+              onPress={() => router.push("/logs")}
+            >
+              <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
+                <Ionicons
+                  name="document-text-outline"
+                  size={18}
+                  color={Colors.success}
+                />
+                <ThemedText style={styles.sectionTitle}>Activity Logs</ThemedText>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={Colors.textTertiary}
+                />
+              </View>
+              <ThemedText style={styles.sectionDescription}>
+                View all inventory activity, scans, and transfers
+              </ThemedText>
+            </Pressable>
+          </View>
+
+          {/* Shipment Section - Role based */}
+          {(user?.role === "ground-crew" ||
+            user?.role === "loader" ||
+            user?.role === "admin") && (
+            <View style={styles.section}>
+              <Pressable
+                style={styles.sectionLink}
+                onPress={() => router.push("/shipment")}
+              >
+                <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
+                  <Ionicons
+                    name="rocket-outline"
+                    size={18}
+                    color={Colors.warning}
+                  />
+                  <ThemedText style={styles.sectionTitle}>
+                    Shipment Manifest
+                  </ThemedText>
+                  <Ionicons
+                    name="chevron-forward"
+                    size={18}
+                    color={Colors.textTertiary}
+                  />
+                </View>
+                <ThemedText style={styles.sectionDescription}>
+                  Build and manage cargo manifests for missions
+                </ThemedText>
+              </Pressable>
+            </View>
+          )}
+
+          {/* Storage Section */}
+          <View style={styles.section}>
+            <Pressable
+              style={styles.sectionLink}
+              onPress={() => router.push("/module")}
+            >
+              <View style={[styles.sectionHeader, { marginBottom: 0 }]}>
+                <Ionicons
+                  name="grid-outline"
+                  size={18}
+                  color={Colors.blue}
+                />
+                <ThemedText style={styles.sectionTitle}>Storage Module</ThemedText>
+                <Ionicons
+                  name="chevron-forward"
+                  size={18}
+                  color={Colors.textTertiary}
+                />
+              </View>
+              <ThemedText style={styles.sectionDescription}>
+                View DSLM stack layout and CTB positions
+              </ThemedText>
+            </Pressable>
+          </View>
+
+          {activeFilter !== "ctbs" && filteredItems.length === 0 && (
+            <View style={styles.empty}>
+              <Ionicons
+                name="cube-outline"
+                size={48}
+                color={Colors.textTertiary}
+              />
+              <ThemedText style={styles.emptyText}>
+                {searchQuery ? "No items match your search" : "No items found"}
+              </ThemedText>
+            </View>
+          )}
+        </ScrollView>
+
+        <CTBViewer
+          visible={!!selectedItem || !!selectedCTB}
+          ctb={selectedCTB}
+          initialItem={selectedItem}
+          onClose={() => {
+            setSelectedItem(null);
+            setSelectedCTB(null);
+          }}
+        />
+
+        {/* NFC Scanner Modal */}
+        <NFCScannerModal
+          visible={showNFCScanner}
+          mode="scan"
+          title="Scan CTB Tag"
+          subtitle="Hold your device near a CTB's NFC tag to view its contents"
+          onClose={() => setShowNFCScanner(false)}
+          onScanSuccess={handleNFCScanSuccess}
+        />
+
+        {/* Floating NFC Scan Button */}
+        {isSupported && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.fab,
+              pressed && styles.fabPressed
+            ]}
+            onPress={() => setShowNFCScanner(true)}
+          >
+            <Ionicons name="radio-outline" size={28} color="#FFFFFF" />
+            <Text style={styles.fabText}>Scan</Text>
+          </Pressable>
+        )}
+      </SafeAreaView>
+    </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
-  headerBar: {
-    height: 100,
-    paddingHorizontal: 12,
-    flexDirection: 'row',
-    alignItems: 'flex-end',
-    justifyContent: 'space-between',
-    paddingBottom: 16,
+  container: {
+    flex: 1,
     backgroundColor: Colors.background,
   },
-  headerButtons: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 12,
+  safeArea: {
+    flex: 1,
   },
-  iconButton: {
-    padding: 8,
-    backgroundColor: Colors.surface,
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  profileButton: {
-    marginBottom: 4,
-  },
-  profileImage: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: 2,
-    borderColor: Colors.blue,
+  header: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 20,
+    paddingVertical: 12,
   },
   headerTitle: {
-    fontSize: 26,
-    fontWeight: '600',
-    marginBottom: 6,
-    color: Colors.textPrimary,
+    fontSize: 22,
   },
-  headerSubtitle: {
-    fontSize: 13,
-    color: Colors.textSecondary,
-    fontWeight: '400',
-  },
-
-  statsRow: {
-    flexDirection: 'row',
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
     gap: 8,
-    marginBottom: 20,
-    flexWrap: 'wrap',
-    paddingHorizontal: 12,
   },
-  statCard: {
+  headerBtn: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.surface,
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+  },
+  searchBar: {
     flex: 1,
-    minWidth: 150,
+    flexDirection: "row",
+    alignItems: "center",
     backgroundColor: Colors.surface,
-    padding: 16,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  statHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 4,
-  },
-  statValue: {
-    fontSize: 28,
-    fontWeight: '600',
-  },
-  statLabel: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    fontWeight: '400',
-  },
-  statCardActive: {
-    borderColor: Colors.blue,
-    backgroundColor: 'rgba(15, 111, 255, 0.1)',
-  },
-  statLabelActive: {
-    color: Colors.blue,
-    fontWeight: '600',
-  },
-
-  sectionContainer: {
+    borderRadius: 10,
     paddingHorizontal: 12,
-    marginBottom: 20,
-  },
-  sectionTitle: {
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 12,
-    color: Colors.textPrimary,
-  },
-  activityList: {
+    marginHorizontal: 12,
     gap: 8,
-  },
-  activityCard: {
-    backgroundColor: Colors.surface,
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: Colors.border,
-  },
-  activityHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginBottom: 4,
-  },
-  activityAction: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.blue,
-  },
-  activityTime: {
-    fontSize: 11,
-    color: Colors.textTertiary,
-  },
-  activityItemName: {
-    fontSize: 13,
-    color: Colors.textPrimary,
-  },
-  timeTakenBadge: {
-    marginTop: 6,
-    alignSelf: 'flex-start',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
-  },
-  timeTakenText: {
-    fontSize: 11,
-    color: '#10B981',
-    fontWeight: '500',
-  },
-
-  searchContainer: {
-    marginBottom: 20,
-    paddingHorizontal: 12,
   },
   searchInput: {
-    backgroundColor: Colors.surface,
-    borderRadius: 6,
-    paddingHorizontal: 14,
+    flex: 1,
     paddingVertical: 10,
-    fontSize: 14,
-    color: Colors.textPrimary,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    fontWeight: '400',
-  },
-
-  contentArea: {
-    flex: 1,
-    paddingTop: 8,
-    paddingHorizontal: 12,
-  },
-
-  categorySection: {
-    marginBottom: 12,
-    backgroundColor: Colors.surface,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
-  },
-  categoryHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: 16,
-  },
-  categoryHeaderPressed: {
-    backgroundColor: Colors.surfaceHover,
-  },
-  categoryHeaderLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flex: 1,
-  },
-  categoryIcon: {
-    fontSize: 24,
-    marginRight: 12,
-  },
-  categoryInfo: {
-    flex: 1,
-    flexShrink: 1,
-  },
-  categoryTitle: {
     fontSize: 15,
-    fontWeight: '500',
-    marginBottom: 2,
     color: Colors.textPrimary,
   },
-  categorySubtitle: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    fontWeight: '400',
-  },
-  categoryStats: {
-    flexDirection: 'row',
-    gap: 6,
-    marginRight: 10,
-  },
-  categoryStatBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 4,
-  },
-  incomingBadge: {
+  scanBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     backgroundColor: Colors.blueGlow,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.blue,
   },
-  deliveredBadge: {
-    backgroundColor: Colors.blueGlow,
+  scanBtnActive: {
+    backgroundColor: Colors.blue,
   },
-  statBadgeText: {
-    fontSize: 11,
-    fontWeight: '500',
+  content: {
+    paddingBottom: 24,
   },
-  incomingText: {
-    color: Colors.blue,
-  },
-  deliveredText: {
-    color: Colors.blue,
-  },
-  expandIcon: {
-    fontSize: 16,
-    color: Colors.textTertiary,
-  },
-
-  categoryContent: {
+  statsRow: {
+    flexDirection: "row",
+    gap: 8,
     paddingHorizontal: 16,
-    paddingBottom: 16,
-    backgroundColor: Colors.background,
-  },
-
-  statusGroup: {
     marginBottom: 16,
   },
-  statusGroupHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: 12,
-    paddingBottom: 8,
+  statChip: {
+    flex: 1,
+    backgroundColor: Colors.surface,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    alignItems: "center",
+  },
+  statChipActive: {
+    backgroundColor: Colors.blueGlow,
+    borderWidth: 1,
+    borderColor: Colors.blue,
+  },
+  statNum: {
+    fontSize: 20,
+    fontWeight: "600",
+    color: Colors.textPrimary,
+  },
+  statNumActive: {
+    color: Colors.blue,
+  },
+  statLabel: {
+    fontSize: 10,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  section: {
+    marginBottom: 16,
+    paddingHorizontal: 16,
+  },
+  sectionLink: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    padding: 16,
+  },
+  sectionDescription: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginTop: 8,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 10,
+  },
+  sectionTitle: {
+    fontSize: 15,
+    fontWeight: "600",
+    flex: 1,
+  },
+  badge: {
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+  },
+  badgeText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    fontWeight: "500",
+  },
+  list: {
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    overflow: "hidden",
+  },
+  itemRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  statusIndicator: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
-    marginRight: 8,
+  itemIcon: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.blueGlow,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 10,
   },
-  incomingIndicator: {
-    backgroundColor: Colors.blue,
+  itemIconCritical: {
+    backgroundColor: Colors.redGlow,
   },
-  deliveredIndicator: {
-    backgroundColor: Colors.blue,
-  },
-  statusGroupTitle: {
-    fontSize: 13,
-    fontWeight: '500',
-    color: Colors.textPrimary,
-  },
-  statusCount: {
-    fontSize: 12,
-    color: Colors.textTertiary,
-    marginLeft: 6,
-    fontWeight: '400',
-  },
-
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 10,
-  },
-  tileWrap: {
+  itemInfo: {
     flex: 1,
-    minWidth: 110,
-    maxWidth: 150,
   },
-  tile: {
-    width: '100%',
-    aspectRatio: 1,
-    borderRadius: 6,
-    backgroundColor: Colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    position: 'relative',
-    borderWidth: 1,
-    borderColor: Colors.border,
-    overflow: 'hidden',
+  itemNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
   },
-  tileImage: {
-    width: 60,
-    height: 60,
-    borderRadius: 6,
+  itemName: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: 1,
   },
-  tileLabel: {
-    marginTop: 8,
-    textAlign: 'center',
-    fontSize: 12,
-    fontWeight: '500',
-    lineHeight: 16,
-    color: Colors.textPrimary,
+  nfcBadge: {
+    backgroundColor: "rgba(16, 185, 129, 0.2)",
+    borderRadius: 8,
+    padding: 3,
   },
-  qtyBadge: {
-    position: 'absolute',
-    right: 6,
-    bottom: 6,
-    backgroundColor: Colors.blue,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 4,
-  },
-  qtyText: {
-    color: '#fff',
+  itemMeta: {
     fontSize: 11,
-    fontWeight: '600',
+    color: Colors.textSecondary,
   },
-  statusBadge: {
-    position: 'absolute',
-    top: 6,
-    left: 6,
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-    borderRadius: 4,
+  itemRight: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
   },
-  statusBadgeText: {
-    fontSize: 9,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    color: '#FFF',
+  itemQty: {
+    fontSize: 13,
+    color: Colors.blue,
+    fontWeight: "600",
   },
-  deliverBtn: {
-    marginTop: 6,
-    backgroundColor: Colors.blue,
-    paddingVertical: 7,
-    paddingHorizontal: 10,
-    borderRadius: 4,
-    alignItems: 'center',
+  showMore: {
+    padding: 12,
+    alignItems: "center",
   },
-  deliverBtnPressed: {
-    opacity: 0.8,
+  showMoreText: {
+    fontSize: 13,
+    color: Colors.blue,
+    fontWeight: "500",
   },
-  deliverBtnText: {
-    color: '#fff',
-    fontSize: 11,
-    fontWeight: '500',
-  },
-
-  emptyState: {
-    padding: 24,
-    alignItems: 'center',
+  empty: {
+    alignItems: "center",
+    paddingVertical: 60,
+    gap: 12,
   },
   emptyText: {
-    fontSize: 13,
+    fontSize: 14,
     color: Colors.textTertiary,
-    fontStyle: 'italic',
   },
-  ctbLabel: {
-    marginTop: 4,
-    fontSize: 10,
-    color: Colors.blue,
-    textAlign: 'center',
-    fontWeight: '500',
-  },
+  // Floating Action Button for NFC Scan
   fab: {
-    position: 'absolute',
-    bottom: 30,
-    right: 30,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    position: "absolute",
+    bottom: 24,
+    right: 20,
     backgroundColor: Colors.blue,
-    alignItems: 'center',
-    justifyContent: 'center',
-    elevation: 5,
-    shadowColor: '#000',
+    borderRadius: 28,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    shadowColor: Colors.blue,
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 4,
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  fabPressed: {
+    opacity: 0.8,
+    transform: [{ scale: 0.96 }],
+  },
+  fabText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  // Incoming badge for quick action
+  incomingBadge: {
+    backgroundColor: Colors.warning,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginRight: 4,
+  },
+  incomingBadgeText: {
+    fontSize: 12,
+    color: "#000",
+    fontWeight: "700",
+  },
+  wasteBadge: {
+    backgroundColor: Colors.error,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 10,
+    marginRight: 4,
+  },
+  wasteBadgeText: {
+    fontSize: 12,
+    color: "#fff",
+    fontWeight: "700",
   },
 });
