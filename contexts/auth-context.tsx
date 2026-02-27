@@ -14,7 +14,7 @@ type AuthContextType = {
     user: User | null;
     isLoading: boolean;
     isAuthenticated: boolean;
-    isOfflineSession: boolean; // Indicates if logged in offline
+    isOfflineSession: boolean;
     login: (username: string, password: string) => Promise<boolean>;
     loginError: string | null;
     logout: () => Promise<void>;
@@ -30,7 +30,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [loginError, setLoginError] = useState<string | null>(null);
     const [isOfflineSession, setIsOfflineSession] = useState(false);
 
-    // Check for existing session on mount
     useEffect(() => {
         checkExistingSession();
     }, []);
@@ -66,7 +65,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 }
             }
         } catch (error) {
-            console.log('Session check failed (server may be offline):', error);
             try {
                 const cachedUser = await SecureStore.getItemAsync('cachedUser');
                 if (cachedUser) {
@@ -74,7 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     setIsOfflineSession(true);
                 }
             } catch {
-                // No cached user
             }
         } finally {
             setIsCheckingSession(false);
@@ -102,30 +99,25 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                 return false;
             }
 
-            // Store token securely
             await SecureStore.setItemAsync('authToken', data.token);
-
-            // Cache user data for offline access (SecureStore for quick access)
             await SecureStore.setItemAsync('cachedUser', JSON.stringify(data.user));
 
-            // Also store in local SQLite database with password hash for offline login
+            // Store in SQLite with password hash so offline login can verify credentials
             try {
                 const passwordHashValue = hashPassword(password);
                 await saveCachedUser(data.user, passwordHashValue);
             } catch (dbError) {
-                console.log('Failed to cache user in local database:', dbError);
             }
 
             setUser(data.user);
-            setIsOfflineSession(false); // Successfully connected to server
+            setIsOfflineSession(false);
             setIsLoggingIn(false);
             return true;
         } catch (error) {
             // Server is offline, attempt offline login with cached credentials
-            console.log('Server unreachable, attempting offline login');
 
             try {
-                // First try local SQLite database (has password hash for verification)
+                // SQLite has password hash for proper verification; SecureStore is fallback
                 const cachedDbUser = await getCachedUser(username);
                 if (cachedDbUser && verifyPassword(password, cachedDbUser.passwordHash)) {
                     const userData: User = {
@@ -156,10 +148,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     }
                 }
             } catch {
-                // No cached credentials
             }
 
-            // Check if we have any cached user at all for better error message
             const hasCachedUser = await getCachedUser(username).catch(() => null);
             if (hasCachedUser) {
                 setLoginError('Incorrect password for offline login.');
@@ -174,7 +164,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const logout = async () => {
         const token = await SecureStore.getItemAsync('authToken');
 
-        // Try to logout from server
         if (token) {
             try {
                 await fetch(`${getApiBaseUrlSync()}/api/auth/logout`, {
@@ -189,7 +178,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             }
         }
 
-        // Clear local data
         await SecureStore.deleteItemAsync('authToken');
         await SecureStore.deleteItemAsync('cachedUser');
 

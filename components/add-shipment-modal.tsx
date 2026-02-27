@@ -24,7 +24,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
     const [showNFCScanner, setShowNFCScanner] = useState(false);
     const [nfcTargetCtbId, setNfcTargetCtbId] = useState<string | null>(null);
 
-    // CTB State
     const [ctbId, setCtbId] = useState('');
     const [ctbSize, setCtbSize] = useState<CTBSize>(1.0);
     const [targetStack, setTargetStack] = useState<StackId>('S1');
@@ -35,7 +34,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
     const STACKS: StackId[] = ['S1', 'S2', 'S3', 'C1', 'C2'];
     const POSITIONS = Array.from({ length: 16 }, (_, i) => i + 1);
 
-    // Items State
     const [items, setItems] = useState<Partial<InventoryItem>[]>([]);
     const [newItemName, setNewItemName] = useState('');
     const [newItemQty, setNewItemQty] = useState('1');
@@ -52,8 +50,8 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                 quantity: parseInt(newItemQty) || 1,
                 category: newItemCategory,
                 status: 'incoming',
-                mass: 1.0, // Default
-                volume: 0.1, // Default
+                mass: 1.0,
+                volume: 0.1,
             }
         ]);
 
@@ -78,7 +76,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
             path: `${targetStack}-P${targetPosition}-L1`
         };
 
-        // Get volume specs for this size
         const volumeSpecs = CTB_VOLUME_SPECS[ctbSize] ?? { packed: ctbSize * 0.028, unpacked: ctbSize * 0.025 };
 
         const newCTB: CTB = {
@@ -102,10 +99,8 @@ export function AddShipmentModal({ visible, onClose }: Props) {
             loadedDate: new Date(),
         };
 
-        // Add CTB
         addCTB(newCTB);
 
-        // Add Items
         items.forEach(item => {
             addItem({
                 ...item,
@@ -121,7 +116,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
             } as InventoryItem);
         });
 
-        // Prompt NFC tag assignment
         if (nfcSupported) {
             showDialog(
                 'Assign NFC Tag',
@@ -146,7 +140,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                 ],
             );
         } else {
-            // Reset and close
             setCtbId('');
             setItems([]);
             onClose();
@@ -170,7 +163,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                 </View>
 
                 <ScrollView style={styles.content}>
-                    {/* CTB Details */}
                     <View style={styles.section}>
                         <ThemedText style={styles.sectionTitle}>Container Details</ThemedText>
 
@@ -269,7 +261,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                         </View>
                     </View>
 
-                    {/* Add Items */}
                     <View style={styles.section}>
                         <ThemedText style={styles.sectionTitle}>Contents</ThemedText>
 
@@ -296,7 +287,6 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                             </View>
                         </View>
 
-                        {/* Items List */}
                         {items.map((item, index) => (
                             <View key={index} style={styles.itemRow}>
                                 <View style={styles.itemInfo}>

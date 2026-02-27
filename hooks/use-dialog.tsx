@@ -70,23 +70,11 @@ export function DialogProvider({ children }: { children: React.ReactNode }) {
   return (
     <DialogContext.Provider value={{ showDialog, _state: state, _handleClose: handleClose }}>
       {children}
-      {/* Root-level overlay for non-modal screens */}
       <DialogOverlay />
     </DialogContext.Provider>
   );
 }
 
-/**
- * Renders the dialog as a View overlay.
- *
- * The root DialogProvider renders one automatically for regular screens.
- * Components that open their own <Modal> (e.g. CTBViewer) should render
- * an additional <DialogOverlay /> inside the Modal so the dialog appears
- * above the modal content instead of behind it.
- *
- * Both instances read from the same context; only the topmost one is
- * visible/interactive on iOS because native Modals sit above root Views.
- */
 export function DialogOverlay() {
   const { _state: state, _handleClose: handleClose } = useContext(DialogContext);
 

@@ -52,7 +52,6 @@ export function NotificationBanner({ notification, onDismiss }: Props) {
 
   useEffect(() => {
     if (notification) {
-      // Animate in from top
       Animated.parallel([
         Animated.spring(translateY, {
           toValue: 0,
@@ -67,7 +66,6 @@ export function NotificationBanner({ notification, onDismiss }: Props) {
         }),
       ]).start();
 
-      // Auto-dismiss after 4s
       timerRef.current = setTimeout(() => {
         dismissBanner();
       }, 4000);
@@ -145,7 +143,6 @@ export function NotificationBanner({ notification, onDismiss }: Props) {
         </Pressable>
       </Pressable>
 
-      {/* Accent line at top */}
       <View style={[styles.accentLine, { backgroundColor: config.color }]} />
     </Animated.View>
   );

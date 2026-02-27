@@ -8,7 +8,7 @@ import { ThemedText } from './themed-text';
 type Props = {
   visible: boolean;
   message: string;
-  duration?: number; // milliseconds
+  duration?: number;
   onUndo: () => void;
   onDismiss: () => void;
 };
@@ -20,8 +20,7 @@ export function UndoToast({ visible, message, duration = 5000, onUndo, onDismiss
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const startTimeRef = useRef<number>(0);
   const onDismissRef = useRef(onDismiss);
-  
-  // Keep the ref updated
+
   useEffect(() => {
     onDismissRef.current = onDismiss;
   }, [onDismiss]);
@@ -35,11 +34,9 @@ export function UndoToast({ visible, message, duration = 5000, onUndo, onDismiss
     };
 
     if (visible) {
-      // Reset progress
       setProgress(1);
       startTimeRef.current = Date.now();
 
-      // Animate in
       Animated.parallel([
         Animated.spring(translateY, {
           toValue: 0,
@@ -54,7 +51,6 @@ export function UndoToast({ visible, message, duration = 5000, onUndo, onDismiss
         }),
       ]).start();
 
-      // Start countdown
       timerRef.current = setInterval(() => {
         const elapsed = Date.now() - startTimeRef.current;
         const remaining = Math.max(0, 1 - elapsed / duration);
@@ -66,7 +62,6 @@ export function UndoToast({ visible, message, duration = 5000, onUndo, onDismiss
         }
       }, 50);
     } else {
-      // Animate out
       Animated.parallel([
         Animated.timing(translateY, {
           toValue: 100,
@@ -114,7 +109,6 @@ export function UndoToast({ visible, message, duration = 5000, onUndo, onDismiss
         },
       ]}
     >
-      {/* Progress bar */}
       <View style={styles.progressContainer}>
         <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
       </View>
@@ -123,7 +117,7 @@ export function UndoToast({ visible, message, duration = 5000, onUndo, onDismiss
         <View style={styles.iconContainer}>
           <Ionicons name="trash" size={18} color="#FFFFFF" />
         </View>
-        
+
         <ThemedText style={styles.message} numberOfLines={1}>
           {message}
         </ThemedText>

@@ -14,7 +14,6 @@ import { useNFC } from '../../hooks/use-nfc';
 import type { CTB, CTBSize, InventoryItem, ItemCategory } from '../../types/dslm';
 import { CTB_VOLUME_SPECS } from '../../types/dslm';
 
-// Category to ID prefix mapping
 const CATEGORY_PREFIXES: Record<ItemCategory, string> = {
     'food': 'FOOD',
     'water': 'WATER',
@@ -29,7 +28,6 @@ const CATEGORY_PREFIXES: Record<ItemCategory, string> = {
     'misc': 'MISC',
 };
 
-// Display labels for categories
 const CATEGORY_LABELS: Record<ItemCategory, string> = {
     'food': 'Food',
     'water': 'Water',
@@ -55,23 +53,19 @@ export default function ShipmentScreen() {
     const [view, setView] = useState<ShipmentView>('dashboard');
     const [builderTab, setBuilderTab] = useState<BuilderTab>('details');
 
-    // NFC Assignment State
     const [showNFCScanner, setShowNFCScanner] = useState(false);
     const [nfcAssignTarget, setNFCAssignTarget] = useState<string | null>(null);
 
-    // Manifest Builder State
     const [manifestId, setManifestId] = useState(`MNF-${new Date().getFullYear()}-${Math.floor(Math.random() * 1000)}`);
     const [manifestCtbs, setManifestCtbs] = useState<CTB[]>([]);
 
     const [manifestItems, setManifestItems] = useState<InventoryItem[]>([]);
 
-    // Extended Manifest Metadata
     const [destination, setDestination] = useState('Lunar Gateway');
     const [showDestinationPicker, setShowDestinationPicker] = useState(false);
     const [priority, setPriority] = useState<'Low' | 'Normal' | 'High'>('Normal');
     const [notes, setNotes] = useState('');
 
-    // Available destinations
     const DESTINATIONS = [
         'Lunar Gateway',
         'Lunar Surface Base',
@@ -81,38 +75,31 @@ export default function ShipmentScreen() {
         'DSLM Storage',
     ];
 
-    // Selection Selection
     const [selectedCtbId, setSelectedCtbId] = useState<string | null>(null);
     const [isAddItemVisible, setIsAddItemVisible] = useState(false);
 
-    // New CTB Draft State
     const [isCreatingCtb, setIsCreatingCtb] = useState(false);
     const [newCtbId, setNewCtbId] = useState('');
     const [newCtbSize, setNewCtbSize] = useState<CTBSize>(1.0);
-    const [newCtbMass, setNewCtbMass] = useState(''); // Empty string means auto-calc
+    const [newCtbMass, setNewCtbMass] = useState('');
     const [selectedCategory, setSelectedCategory] = useState<ItemCategory | null>(null);
     const [showCategoryPicker, setShowCategoryPicker] = useState(false);
 
-    // Edit CTB State
     const [editingCtbId, setEditingCtbId] = useState<string | null>(null);
     const [editCtbSize, setEditCtbSize] = useState<CTBSize>(1.0);
     const [editCtbMass, setEditCtbMass] = useState('');
 
-    // Edit Item State
     const [editingItemId, setEditingItemId] = useState<string | null>(null);
     const [editItemName, setEditItemName] = useState('');
     const [editItemQty, setEditItemQty] = useState('');
     const [editItemMass, setEditItemMass] = useState('');
     const [editItemExpiry, setEditItemExpiry] = useState('');
 
-    // Generate next CTB ID based on category
     const generateNextCtbId = useCallback((category: ItemCategory): string => {
         const prefix = CATEGORY_PREFIXES[category];
 
-        // Combine existing CTBs from inventory with CTBs in current manifest
         const allCtbs = [...existingCtbs, ...manifestCtbs];
 
-        // Find all CTB IDs that match this prefix pattern (CTB-PREFIX-XXX)
         const pattern = new RegExp(`^CTB-${prefix}-(\\d+)$`);
         const matchingNumbers: number[] = [];
 
@@ -123,7 +110,6 @@ export default function ShipmentScreen() {
             }
         }
 
-        // Find the next available number
         const nextNumber = matchingNumbers.length > 0
             ? Math.max(...matchingNumbers) + 1
             : 1;
@@ -131,7 +117,6 @@ export default function ShipmentScreen() {
         return `${prefix}-${String(nextNumber).padStart(3, '0')}`;
     }, [existingCtbs, manifestCtbs]);
 
-    // Handle category selection
     const handleCategorySelect = useCallback((category: ItemCategory) => {
         setSelectedCategory(category);
         const generatedId = generateNextCtbId(category);
@@ -165,18 +150,16 @@ export default function ShipmentScreen() {
         }
 
         const ctbId = `CTB-${newCtbId.toUpperCase()}`;
-        // Check for duplicate ID in manifest
         if (manifestCtbs.some(c => c.id === ctbId)) {
             showDialog('Error', 'CTB ID already exists in this manifest');
             return;
         }
-        // Check for duplicate ID in existing inventory
+
         if (existingCtbs.some(c => c.id === ctbId)) {
             showDialog('Error', 'CTB ID already exists in inventory');
             return;
         }
 
-        // Get volume specs for this size
         const volumeSpecs = CTB_VOLUME_SPECS[newCtbSize] ?? { packed: newCtbSize * 0.028, unpacked: newCtbSize * 0.025 };
 
         const newCTB: CTB = {
@@ -192,8 +175,8 @@ export default function ShipmentScreen() {
             childCTBs: [],
             items: [],
 
-            mass: newCtbMass ? parseFloat(newCtbMass) : (2.0 * newCtbSize), // Use override or default
-            volume: 0.05 * newCtbSize, // Internal volume
+            mass: newCtbMass ? parseFloat(newCtbMass) : (2.0 * newCtbSize),
+            volume: 0.05 * newCtbSize,
             packedVolume: volumeSpecs.packed,
             unpackedVolume: volumeSpecs.unpacked,
             nestingDepth: 0,
@@ -203,13 +186,11 @@ export default function ShipmentScreen() {
 
         setManifestCtbs(prev => [...prev, newCTB]);
         setNewCtbId('');
-        setNewCtbMass(''); // Reset mass override
-        setSelectedCategory(null); // Reset category
+        setNewCtbMass('');
+        setSelectedCategory(null);
         setIsCreatingCtb(false);
-        // Auto-select the new CTB to encourage packing
         setSelectedCtbId(ctbId);
 
-        // Prompt NFC tag assignment
         if (nfcSupported) {
             showDialog(
                 'Assign NFC Tag',
@@ -231,30 +212,26 @@ export default function ShipmentScreen() {
     const handleAddItem = (item: InventoryItem) => {
         if (!selectedCtbId) return;
 
-        // Add item to global list
         setManifestItems(prev => [...prev, item]);
 
-        // Link item to CTB
         setManifestCtbs(prev => prev.map(ctb => {
             if (ctb.id === selectedCtbId) {
                 return {
                     ...ctb,
                     items: [...ctb.items, item.id],
-                    mass: ctb.mass + item.mass, // Update mass
+                    mass: ctb.mass + item.mass,
                 };
             }
             return ctb;
         }));
     };
 
-    // Start editing a CTB
     const startEditCtb = (ctb: CTB) => {
         setEditingCtbId(ctb.id);
         setEditCtbSize(ctb.size);
         setEditCtbMass(String(ctb.mass));
     };
 
-    // Save CTB edits
     const saveCtbEdit = () => {
         if (!editingCtbId) return;
 
@@ -275,7 +252,6 @@ export default function ShipmentScreen() {
         setEditingCtbId(null);
     };
 
-    // Delete a CTB from manifest
     const deleteCtb = (ctbId: string) => {
         showDialog(
             'Remove CTB',
@@ -286,9 +262,7 @@ export default function ShipmentScreen() {
                     text: 'Remove',
                     style: 'destructive',
                     onPress: () => {
-                        // Remove items belonging to this CTB
                         setManifestItems(prev => prev.filter(item => item.ctbId !== ctbId));
-                        // Remove the CTB
                         setManifestCtbs(prev => prev.filter(ctb => ctb.id !== ctbId));
                         if (selectedCtbId === ctbId) {
                             setSelectedCtbId(null);
@@ -299,7 +273,6 @@ export default function ShipmentScreen() {
         );
     };
 
-    // Start editing an item
     const startEditItem = (item: InventoryItem) => {
         setEditingItemId(item.id);
         setEditItemName(item.name);
@@ -308,7 +281,6 @@ export default function ShipmentScreen() {
         setEditItemExpiry(item.expiryDate ? item.expiryDate.toISOString().split('T')[0] : '');
     };
 
-    // Save item edits
     const saveItemEdit = () => {
         if (!editingItemId) return;
 
@@ -331,7 +303,6 @@ export default function ShipmentScreen() {
             return item;
         }));
 
-        // Update CTB mass if item mass changed
         if (massDiff !== 0) {
             setManifestCtbs(prev => prev.map(ctb => {
                 if (ctb.id === oldItem.ctbId) {
@@ -344,7 +315,6 @@ export default function ShipmentScreen() {
         setEditingItemId(null);
     };
 
-    // Handle NFC tag assignment to a CTB
     const handleAssignNFC = (ctbId: string) => {
         setNFCAssignTarget(ctbId);
         setShowNFCScanner(true);
@@ -352,7 +322,6 @@ export default function ShipmentScreen() {
 
     const handleNFCWriteSuccess = (result: { success: boolean; tagId?: string }) => {
         if (result.success && result.tagId && nfcAssignTarget) {
-            // Update the CTB with the assigned NFC tag ID
             setManifestCtbs(prev => prev.map(ctb => {
                 if (ctb.id === nfcAssignTarget) {
                     return {
@@ -372,7 +341,6 @@ export default function ShipmentScreen() {
         setNFCAssignTarget(null);
     };
 
-    // Delete an item from manifest
     const deleteItem = (itemId: string) => {
         const item = manifestItems.find(i => i.id === itemId);
         if (!item) return;
@@ -386,7 +354,6 @@ export default function ShipmentScreen() {
                     text: 'Remove',
                     style: 'destructive',
                     onPress: () => {
-                        // Update CTB mass and items list
                         setManifestCtbs(prev => prev.map(ctb => {
                             if (ctb.id === item.ctbId) {
                                 return {
@@ -397,7 +364,6 @@ export default function ShipmentScreen() {
                             }
                             return ctb;
                         }));
-                        // Remove the item
                         setManifestItems(prev => prev.filter(i => i.id !== itemId));
                     }
                 }
@@ -438,11 +404,8 @@ export default function ShipmentScreen() {
         );
     };
 
-    // --- RENDER HELPERS ---
-
     const renderDashboard = () => (
         <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingBottom: 20 }}>
-            {/* Hero Card */}
             <View style={styles.heroCard}>
                 <View style={styles.heroContent}>
                     <Ionicons name="rocket-outline" size={48} color={Colors.blue} />
@@ -457,7 +420,6 @@ export default function ShipmentScreen() {
                 </Pressable>
             </View>
 
-            {/* Recent Manifests */}
             <View style={styles.sectionHeader}>
                 <ThemedText style={styles.sectionTitle}>Recent Manifests</ThemedText>
             </View>
@@ -517,7 +479,6 @@ export default function ShipmentScreen() {
                 </View>
             </View>
 
-            {/* Tab Selector */}
             <View style={styles.tabContainer}>
                 <View style={styles.tabSelector}>
                     <Pressable
@@ -537,7 +498,6 @@ export default function ShipmentScreen() {
 
             <ScrollView contentContainerStyle={styles.builderContent}>
                 {builderTab === 'details' ? (
-                    /* Manifest Metadata Form */
                     <View style={styles.metaForm}>
                         <View style={styles.metaRow}>
                             <View style={{ flex: 1 }}>
@@ -607,7 +567,6 @@ export default function ShipmentScreen() {
                         </View>
                     </View>
                 ) : (
-                    /* Cargo List */
                     <>
                         {manifestCtbs.length === 0 ? (
                             <View style={styles.builderEmpty}>
@@ -637,7 +596,6 @@ export default function ShipmentScreen() {
                                                 </View>
                                             </View>
                                             <View style={styles.ctbHeaderActions}>
-                                                {/* NFC Assignment Button */}
                                                 {nfcSupported && (
                                                     <Pressable
                                                         style={[
@@ -678,7 +636,6 @@ export default function ShipmentScreen() {
                                             </View>
                                         </Pressable>
 
-                                        {/* Edit CTB Form */}
                                         {isEditing && (
                                             <View style={styles.editForm}>
                                                 <ThemedText style={styles.editFormTitle}>Edit CTB</ThemedText>
@@ -722,7 +679,6 @@ export default function ShipmentScreen() {
 
                                         {isSelected && !isEditing && (
                                             <View style={styles.ctbExpanded}>
-                                                {/* Items List */}
                                                 {itemCount > 0 ? (
                                                     <View style={styles.packedList}>
                                                         {manifestItems.filter(i => i.ctbId === ctb.id).map((item, i) => {
@@ -808,7 +764,6 @@ export default function ShipmentScreen() {
                                                     <ThemedText style={styles.emptyPacked}>No items packed yet.</ThemedText>
                                                 )}
 
-                                                {/* Pack Action */}
                                                 <Pressable
                                                     style={styles.packActionButton}
                                                     onPress={() => setIsAddItemVisible(true)}
@@ -823,7 +778,6 @@ export default function ShipmentScreen() {
                             })
                         )}
 
-                        {/* Add CTB Button (Inline) */}
                         {!isCreatingCtb ? (
                             <Pressable style={styles.addCtbButton} onPress={() => setIsCreatingCtb(true)}>
                                 <Ionicons name="add" size={24} color={Colors.blue} />
@@ -833,7 +787,6 @@ export default function ShipmentScreen() {
                             <View style={styles.newCtbForm}>
                                 <ThemedText style={styles.formTitle}>New Container</ThemedText>
 
-                                {/* Category Dropdown */}
                                 <View style={styles.formRow}>
                                     <ThemedText style={styles.label}>Category <ThemedText style={{ color: Colors.red }}>*</ThemedText></ThemedText>
                                     <Pressable
@@ -875,7 +828,6 @@ export default function ShipmentScreen() {
                                     )}
                                 </View>
 
-                                {/* Auto-generated ID Display */}
                                 <View style={styles.formRow}>
                                     <ThemedText style={styles.label}>Generated ID</ThemedText>
                                     <View style={styles.generatedIdContainer}>
@@ -949,7 +901,6 @@ export default function ShipmentScreen() {
                 )}
             </ScrollView>
 
-            {/* Footer Actions */}
             <View style={[styles.builderFooter, { paddingBottom: insets.bottom + 20 }]}>
                 {builderTab === 'details' ? (
                     <>
@@ -1002,7 +953,6 @@ export default function ShipmentScreen() {
                 onAdd={handleAddItem}
             />
 
-            {/* NFC Assignment Modal */}
             <NFCScannerModal
                 visible={showNFCScanner}
                 mode="write"
@@ -1020,7 +970,6 @@ export default function ShipmentScreen() {
 
     return (
         <ThemedView style={styles.container}>
-            {/* Header */}
             <View style={[styles.statusBar, { paddingTop: insets.top }]}>
                 {view === 'builder' && (
                     <Pressable onPress={() => setView('dashboard')} style={styles.backBtn}>
@@ -1062,7 +1011,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
         color: '#E0E0E0',
     },
-    // Dashboard Styles
     heroCard: {
         margin: 16,
         backgroundColor: Colors.surface,
@@ -1182,7 +1130,6 @@ const styles = StyleSheet.create({
         marginTop: 6,
     },
 
-    // Builder Styles
     manifestHeader: {
         flexDirection: 'row',
         justifyContent: 'space-between',
@@ -1237,7 +1184,6 @@ const styles = StyleSheet.create({
         color: '#888',
     },
 
-    // CTB Card
     ctbCard: {
         backgroundColor: Colors.surface,
         borderRadius: 12,
@@ -1361,7 +1307,6 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
 
-    // Add CTB Button
     addCtbButton: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1380,7 +1325,6 @@ const styles = StyleSheet.create({
         fontWeight: '500',
     },
 
-    // New CTB Form
     newCtbForm: {
         backgroundColor: '#161616',
         borderRadius: 12,
@@ -1454,7 +1398,6 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
 
-    // Footer Actions
     builderFooter: {
         position: 'absolute',
         bottom: 0,
@@ -1497,7 +1440,6 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.border,
     },
 
-    // Meta Form Styles
     metaForm: {
         padding: 16,
         backgroundColor: Colors.background,
@@ -1611,7 +1553,6 @@ const styles = StyleSheet.create({
         fontWeight: '400',
         marginLeft: 4,
     },
-    // Category Dropdown Styles
     categoryDropdown: {
         backgroundColor: Colors.surfaceHover,
         borderRadius: 8,
@@ -1660,7 +1601,6 @@ const styles = StyleSheet.create({
         color: Colors.blue,
         fontWeight: '600',
     },
-    // Generated ID Styles
     generatedIdContainer: {
         flexDirection: 'row',
         alignItems: 'center',
@@ -1690,7 +1630,6 @@ const styles = StyleSheet.create({
         marginTop: 4,
         fontStyle: 'italic',
     },
-    // Edit form styles
     editForm: {
         padding: 16,
         borderTopWidth: 1,
@@ -1775,7 +1714,6 @@ const styles = StyleSheet.create({
         gap: 8,
         marginBottom: 8,
     },
-    // Tab Styles
     tabContainer: {
         paddingHorizontal: 16,
         paddingVertical: 12,

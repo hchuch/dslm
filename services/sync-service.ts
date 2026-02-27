@@ -47,16 +47,12 @@ let dataChangeListeners: Array<() => void> = [];
 
 export function addSyncStatusListener(listener: (status: SyncStatus) => void): () => void {
   statusListeners.push(listener);
-  listener(syncStatus); // Notify immediately with current status
+  listener(syncStatus);
   return () => {
     statusListeners = statusListeners.filter((l) => l !== listener);
   };
 }
 
-/**
- * Register a callback that fires when sync pulls new data from the server.
- * Used by InventoryProvider to reload UI state after remote changes arrive.
- */
 export function addDataChangeListener(listener: () => void): () => void {
   dataChangeListeners.push(listener);
   return () => {
@@ -114,9 +110,6 @@ async function apiRequest<T>(
   return response.json();
 }
 
-/**
- * Check if the server is reachable
- */
 export async function checkOnlineStatus(): Promise<boolean> {
   try {
     const response = await fetch(`${getApiBaseUrlSync()}/health`, {
@@ -132,9 +125,6 @@ export async function checkOnlineStatus(): Promise<boolean> {
   }
 }
 
-/**
- * Perform a full sync (initial sync or recovery)
- */
 export async function fullSync(): Promise<SyncResult> {
   const result: SyncResult = {
     success: false,
@@ -147,12 +137,10 @@ export async function fullSync(): Promise<SyncResult> {
   updateStatus({ isSyncing: true });
 
   try {
-    // First, push any pending changes
     const pushResult = await pushChanges();
     result.syncedChanges = pushResult.syncedChanges;
     result.errors.push(...pushResult.errors);
 
-    // Then pull all data from server
     const data = await apiRequest<{
       categories: any[];
       stacks: any[];
@@ -166,7 +154,6 @@ export async function fullSync(): Promise<SyncResult> {
     await setLastSyncVersion(data.currentVersion);
     await setLastSyncTime(new Date());
 
-    // Notify listeners that new data has arrived from full sync
     notifyDataChanged();
 
     result.pulledChanges = (data.ctbs?.length || 0) + (data.items?.length || 0);
@@ -192,9 +179,6 @@ export async function fullSync(): Promise<SyncResult> {
   return result;
 }
 
-/**
- * Pull changes from server since last sync version
- */
 export async function pullChanges(): Promise<SyncResult> {
   const result: SyncResult = {
     success: false,
@@ -219,13 +203,11 @@ export async function pullChanges(): Promise<SyncResult> {
     }>(`/api/sync/changes?since=${lastVersion}`);
 
     if (data.changes.length > 0) {
-      // Apply changes to local database
       for (const change of data.changes) {
         await applyServerChange(change);
         result.pulledChanges++;
       }
 
-      // Notify listeners that new data has arrived
       notifyDataChanged();
     }
 
@@ -249,9 +231,6 @@ export async function pullChanges(): Promise<SyncResult> {
   return result;
 }
 
-/**
- * Push pending local changes to server
- */
 export async function pushChanges(): Promise<SyncResult> {
   const result: SyncResult = {
     success: false,
@@ -292,7 +271,6 @@ export async function pushChanges(): Promise<SyncResult> {
       }),
     });
 
-    // Process results
     const successfulIds: number[] = [];
 
     for (let i = 0; i < response.results.length; i++) {
@@ -307,7 +285,6 @@ export async function pushChanges(): Promise<SyncResult> {
       }
     }
 
-    // Clear successfully synced changes
     if (successfulIds.length > 0) {
       await clearPendingChanges(successfulIds);
     }
@@ -331,9 +308,6 @@ export async function pushChanges(): Promise<SyncResult> {
   return result;
 }
 
-/**
- * Perform incremental sync (push + pull)
- */
 export async function sync(): Promise<SyncResult> {
   const result: SyncResult = {
     success: false,
@@ -343,13 +317,11 @@ export async function sync(): Promise<SyncResult> {
     errors: [],
   };
 
-  // Check if already syncing
   if (syncStatus.isSyncing) {
     result.errors.push('Sync already in progress');
     return result;
   }
 
-  // Check online status
   const isOnline = await checkOnlineStatus();
   if (!isOnline) {
     result.errors.push('Offline - sync skipped');
@@ -359,7 +331,6 @@ export async function sync(): Promise<SyncResult> {
   updateStatus({ isSyncing: true });
 
   try {
-    // Push first, then pull
     const pushResult = await pushChanges();
     result.syncedChanges = pushResult.syncedChanges;
     result.errors.push(...pushResult.errors);
@@ -377,9 +348,6 @@ export async function sync(): Promise<SyncResult> {
   return result;
 }
 
-/**
- * Apply a change from the server to local database
- */
 async function applyServerChange(change: {
   tableName: string;
   recordId: string;
@@ -388,9 +356,7 @@ async function applyServerChange(change: {
 }): Promise<void> {
   switch (change.tableName) {
     case 'Category':
-      if (change.operation === 'delete') {
-        // Soft delete handled by import
-      } else {
+      if (change.operation !== 'delete') {
         await bulkImportData({ categories: [change.changeData] });
       }
       break;
@@ -417,12 +383,8 @@ async function applyServerChange(change: {
   }
 }
 
-/**
- * Initialize sync service and update status
- */
 export async function initializeSyncService(): Promise<void> {
   try {
-    // Ensure API URL is loaded from SecureStore before any network calls
     await getApiBaseUrl();
 
     const [pendingCount, lastVersion, lastTime] = await Promise.all([
@@ -437,22 +399,17 @@ export async function initializeSyncService(): Promise<void> {
       lastSyncTime: lastTime,
     });
 
-    // Check online status
     await checkOnlineStatus();
   } catch (error) {
     console.error('Failed to initialize sync service:', error);
   }
 }
 
-/**
- * Start polling for changes
- */
 let pollInterval: ReturnType<typeof setInterval> | null = null;
 
 export function startSyncPolling(intervalMs: number = 30000): void {
   stopSyncPolling();
 
-  // Start polling for incremental changes
   pollInterval = setInterval(async () => {
     if (syncStatus.isOnline && !syncStatus.isSyncing) {
       await sync();
@@ -467,9 +424,6 @@ export function stopSyncPolling(): void {
   }
 }
 
-/**
- * Force push any pending changes (call when making local changes)
- */
 export async function pushIfOnline(): Promise<void> {
   const pendingCount = await getPendingChangesCount();
   updateStatus({ pendingChangesCount: pendingCount });

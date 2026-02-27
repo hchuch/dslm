@@ -1,11 +1,6 @@
-/**
- * Theme colors used across the app (light + dark variants).
- */
-
 import { Platform } from 'react-native';
 
 const Palette = {
-  // Primary colors
   primary: '#105bd8',
   primaryDarker: '#0b3d91',
   primaryDarkest: '#061f4a',
@@ -14,7 +9,6 @@ const Palette = {
   grayLight: '#aeb0b5',
   white: '#ffffff',
 
-  // Secondary colors
   primaryAlt: '#02bfe7',
   primaryAltDarkest: '#046b99',
   primaryAltDark: '#00a6d2',
@@ -27,7 +21,6 @@ const Palette = {
   secondaryLight: '#e59892',
   secondaryLightest: '#f9e0de',
 
-  // Background colors
   gray: '#5b616b',
   grayLighter: '#d6d7d9',
   grayLightest: '#f1f1f1',
@@ -35,7 +28,6 @@ const Palette = {
   grayWarmLight: '#e4e2e0',
   grayCoolLight: '#dce4ef',
 
-  // Tertiary colors
   gold: '#ff9d1e',
   goldLight: '#f9aa43',
   goldLighter: '#ffc375',
@@ -51,7 +43,6 @@ const Palette = {
   coolBlueLighter: '#8ba6ca',
   coolBlueLightest: '#dce4ef',
 
-  // Special states
   focus: '#aeb0b5',
   visited: '#4c2c92',
 };

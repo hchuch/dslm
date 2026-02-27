@@ -32,16 +32,13 @@ export default function ModuleScreen() {
   const stackDetails = selectedStack
     ? {
       stack: stacks.find(s => s.stackId === selectedStack),
-      // Sort by layer first, then by position within each layer
       ctbsInStack: isReorganizing
         ? tempStackCtbs
         : ctbs
             .filter(ctb => ctb.location.stack === selectedStack && !ctb.isOutside)
             .sort((a, b) => {
-              // Primary sort: layer (ascending - layer 1 first)
               const layerDiff = (a.location.layer || 1) - (b.location.layer || 1);
               if (layerDiff !== 0) return layerDiff;
-              // Secondary sort: position (ascending)
               return a.location.position - b.location.position;
             }),
       utilization: getStackUtilization(selectedStack),
@@ -79,7 +76,6 @@ export default function ModuleScreen() {
     }
   };
 
-  // Animated CTB Card for reorder mode
   const AnimatedCTBCard = ({ 
     ctb, 
     isSelected, 
@@ -99,7 +95,6 @@ export default function ModuleScreen() {
 
     useEffect(() => {
       if (isReorderMode && !isSelected) {
-        // Gentle wobble animation for all cards in reorder mode
         const wobble = Animated.loop(
           Animated.sequence([
             Animated.timing(shakeAnim, {
@@ -129,7 +124,6 @@ export default function ModuleScreen() {
 
     useEffect(() => {
       if (isSelected) {
-        // Pulsing glow effect for selected card
         const pulse = Animated.loop(
           Animated.sequence([
             Animated.timing(pulseAnim, {
@@ -146,7 +140,6 @@ export default function ModuleScreen() {
         );
         pulse.start();
         
-        // Initial pop effect
         Animated.spring(scaleAnim, {
           toValue: 1.02,
           friction: 3,
@@ -193,7 +186,6 @@ export default function ModuleScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {/* Header */}
         <View style={styles.header}>
           <View>
             <ThemedText type="title" style={styles.headerTitle}>Module Layout</ThemedText>
@@ -202,7 +194,6 @@ export default function ModuleScreen() {
         </View>
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
-          {/* Outside CTBs Section */}
           {outsideCTBs.length > 0 && (
             <View style={styles.outsideSection}>
               <Pressable
@@ -268,7 +259,6 @@ export default function ModuleScreen() {
           </ThemedView>
         </ScrollView>
 
-        {/* NFC Scan Button */}
         {isSupported && (
           <Pressable
             style={[styles.fab, isScanning && styles.fabScanning]}
@@ -279,7 +269,6 @@ export default function ModuleScreen() {
           </Pressable>
         )}
 
-        {/* Stack Details Modal */}
         <Modal
           visible={!!selectedStack}
           animationType="slide"
@@ -289,7 +278,6 @@ export default function ModuleScreen() {
           <ThemedView style={styles.modalContainer}>
             {stackDetails && (
               <>
-                {/* Modal Header */}
                 <View style={[styles.modalHeader, isReorganizing && { backgroundColor: Colors.surfaceHover, borderBottomColor: Colors.blue }]}>
                   <Pressable onPress={() => {
                     if (isReorganizing) {
@@ -332,7 +320,6 @@ export default function ModuleScreen() {
                               {
                                 text: 'Manual Sort',
                                 onPress: () => {
-                                  // Initialize temp state with current order
                                   setTempStackCtbs(stackDetails.ctbsInStack);
                                   setIsReorganizing(true);
                                 }
@@ -356,7 +343,6 @@ export default function ModuleScreen() {
                 </View>
 
                 <ScrollView style={styles.modalContent}>
-                  {/* Stats Grid */}
                   <View style={styles.statsGrid}>
                     <View style={styles.statCard}>
                       <ThemedText style={styles.statValue}>{stackDetails.ctbsInStack.length}</ThemedText>
@@ -410,9 +396,8 @@ export default function ModuleScreen() {
                             onPress={() => {
                               if (isReorganizing) {
                                 if (isSelected) {
-                                  setSwapSourceId(null); // Deselect
+                                  setSwapSourceId(null);
                                 } else if (swapSourceId) {
-                                  // SWAP LOGIC
                                   const sourceIndex = tempStackCtbs.findIndex(c => c.id === swapSourceId);
                                   const targetIndex = tempStackCtbs.findIndex(c => c.id === ctb.id);
 
@@ -422,10 +407,9 @@ export default function ModuleScreen() {
                                   setTempStackCtbs(newOrder);
                                   setSwapSourceId(null);
                                 } else {
-                                  setSwapSourceId(ctb.id); // Select source
+                                  setSwapSourceId(ctb.id);
                                 }
                               } else {
-                                // Open CTB viewer
                                 setInspectedCTB(ctb);
                                 setInspectedCTBVisible(true);
                               }
@@ -507,7 +491,6 @@ export default function ModuleScreen() {
                   )}
                 </ScrollView>
 
-                {/* CTB Viewer inside the modal to appear on top */}
                 {inspectedCTB && (
                   <CTBViewer
                     visible={inspectedCTBVisible}
@@ -523,7 +506,6 @@ export default function ModuleScreen() {
           </ThemedView>
         </Modal>
 
-        {/* CTB Viewer for NFC scanned CTBs (outside modal) */}
         {scannedCTB && !selectedStack && (
           <CTBViewer
             visible={scannedCTBVisible}
@@ -534,7 +516,6 @@ export default function ModuleScreen() {
             }}
           />
         )}
-        {/* Outside CTB Viewer */}
         {outsideInspectedCTB && (
           <CTBViewer
             visible={outsideInspectedVisible}
@@ -551,7 +532,6 @@ export default function ModuleScreen() {
 }
 
 const styles = StyleSheet.create({
-  // Outside CTBs
   outsideSection: {
     marginHorizontal: 16,
     marginBottom: 16,
@@ -639,7 +619,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    // inherited from type="title"
   },
   headerSubtitle: {
     fontSize: 14,

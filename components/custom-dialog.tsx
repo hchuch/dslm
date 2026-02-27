@@ -75,11 +75,11 @@ export function CustomDialog({
       const result = button.onPress?.(inputMode ? inputValue : undefined);
       if (result && typeof (result as Promise<void>).catch === 'function') {
         (result as Promise<void>).catch((err: unknown) =>
-          console.error('[Dialog] Async handler error:', err)
+          console.error('Dialog handler error:', err)
         );
       }
     } catch (err) {
-      console.error('[Dialog] Button handler error:', err);
+      console.error('Dialog handler error:', err);
     }
   };
 
@@ -105,9 +105,6 @@ export function CustomDialog({
     }
   };
 
-  // Render as an absolutely-positioned View overlay instead of a Modal.
-  // This prevents iOS modal stacking issues when dialogs are shown
-  // from inside other Modals (e.g. CTBViewer).
   if (!visible) return null;
 
   return (

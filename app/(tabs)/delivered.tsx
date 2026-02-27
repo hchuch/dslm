@@ -14,9 +14,7 @@ export default function DeliveredScreen() {
     const { ctbs, inventoryItems } = useInventory();
     const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
 
-    // Filter for CTBs that have been delivered (items are in stock)
     const deliveredCTBs = useMemo(() => {
-        // Find CTBs where at least one item has status 'stock'
         const stockItemCtbIds = new Set(
             inventoryItems.filter(i => i.status === 'stock').map(i => i.ctbId)
         );
@@ -26,7 +24,6 @@ export default function DeliveredScreen() {
     return (
         <ThemedView style={styles.container}>
             <SafeAreaView style={styles.safeArea} edges={['top']}>
-                {/* Header */}
                 <View style={styles.header}>
                     <View>
                         <ThemedText type="title" style={styles.headerTitle}>Delivered Cargo</ThemedText>
@@ -117,7 +114,6 @@ const styles = StyleSheet.create({
     },
     headerTitle: {
         fontSize: 24,
-        // inherited from type="title"
     },
     headerSubtitle: {
         fontSize: 14,

@@ -8,7 +8,6 @@ import React, { useMemo, useState } from 'react';
 import { FlatList, Modal, ScrollView, StyleSheet, TextInput, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
-// Extended type for flattened logs
 type LogEntry = ItemHistoryEntry & {
     itemId: string;
     itemName: string;
@@ -24,7 +23,6 @@ export default function LogsScreen() {
     const [activeFilter, setActiveFilter] = useState('All');
     const [selectedLog, setSelectedLog] = useState<LogEntry | null>(null);
 
-    // Flatten and sort history from all items
     const allLogs = useMemo(() => {
         const logs: LogEntry[] = [];
         inventoryItems.forEach((item) => {
@@ -43,7 +41,6 @@ export default function LogsScreen() {
         return logs.sort((a, b) => b.timestamp.getTime() - a.timestamp.getTime());
     }, [inventoryItems]);
 
-    // Filter logs based on search and active filter
     const filteredLogs = useMemo(() => {
         return allLogs.filter((log) => {
             const matchesSearch =
@@ -79,7 +76,7 @@ export default function LogsScreen() {
                     <IconSymbol
                         name={
                             item.action === 'moved' || item.action === 'relocated'
-                                ? 'tray.and.arrow.up.fill' // Approximation for move
+                                ? 'tray.and.arrow.up.fill'
                                 : item.action === 'delivered'
                                     ? 'checkmark.seal.fill'
                                     : item.action === 'consumed'
@@ -118,11 +115,8 @@ export default function LogsScreen() {
                     <ThemedText type="title">Activity Log</ThemedText>
                 </View>
 
-                {/* Search Bar */}
                 <View style={[styles.searchContainer, { backgroundColor: Colors.surface }]}>
                     <IconSymbol name="chevron.right" size={20} color={Colors.textSecondary} style={{ transform: [{ rotate: '90deg' }] }} />
-                    {/* Using chevron as generic search/magnifier fallback if needed, or just omit icon */}
-                    {/* Actually 'magnifyingglass' is generic, let's assume we don't have it mapped and use generic text input space */}
                     <TextInput
                         style={[styles.searchInput, { color: Colors.textPrimary }]}
                         placeholder="Search logs..."
@@ -132,7 +126,6 @@ export default function LogsScreen() {
                     />
                 </View>
 
-                {/* Filters */}
                 <View>
                     <ScrollView
                         horizontal
@@ -159,7 +152,6 @@ export default function LogsScreen() {
                     </ScrollView>
                 </View>
 
-                {/* Log List */}
                 <FlatList
                     data={filteredLogs}
                     keyExtractor={(item) => item.id}
@@ -172,7 +164,6 @@ export default function LogsScreen() {
                     }
                 />
 
-                {/* Detail Modal */}
                 <Modal
                     visible={!!selectedLog}
                     transparent={true}

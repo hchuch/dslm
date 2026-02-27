@@ -44,7 +44,6 @@ export default function AdminScreen() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Modal state
   const [modalVisible, setModalVisible] = useState(false);
   const [editingUser, setEditingUser] = useState<UserAccount | null>(null);
   const [formData, setFormData] = useState({
@@ -128,7 +127,6 @@ export default function AdminScreen() {
       const token = await getToken();
 
       if (editingUser) {
-        // Update existing user
         const updateData: any = {
           name: formData.name,
           role: formData.role,
@@ -152,7 +150,6 @@ export default function AdminScreen() {
           throw new Error(data.error || 'Failed to update user');
         }
       } else {
-        // Create new user
         const response = await fetch(`${getApiBaseUrlSync()}/api/users`, {
           method: 'POST',
           headers: {
@@ -311,7 +308,6 @@ export default function AdminScreen() {
         }
       />
 
-      {/* Create/Edit Modal */}
       <Modal visible={modalVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>

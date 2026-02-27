@@ -1,5 +1,3 @@
-# Learn more https://docs.github.com/en/get-started/getting-started-with-git/ignoring-files
-
 # dependencies
 node_modules/
 
@@ -42,8 +40,25 @@ server/dist/
 # typescript
 *.tsbuildinfo
 
-app-example
+# builds
+*.ipa
+*.apk
+*.aab
+
+# IDE / editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# LSP / linter caches
+.clj-kondo/
+.lsp/
+.claude/
 
 # generated native folders
 /ios
 /android
+
+app-example

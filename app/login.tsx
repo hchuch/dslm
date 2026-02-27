@@ -191,7 +191,6 @@ export default function SplashScreen() {
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
 
-      {/* QR Code Scanner Modal */}
       <Modal
         visible={showQRScanner}
         animationType="slide"
@@ -259,7 +258,6 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     marginBottom: 24,
-    // backgroundColor: "blue",
   },
   title: {
     fontSize: 36,

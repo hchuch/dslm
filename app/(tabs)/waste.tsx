@@ -44,7 +44,6 @@ export default function WasteScreen() {
   const capacityPercent = Math.min((totalWasteVolumeL / MISSION_WASTE_BUDGET_L) * 100, 100);
   const isOverBudget = capacityPercent > 80;
 
-  // Disposal method breakdown
   const disposalBreakdown = useMemo(() => {
     const counts = { 'return-earth': 0, 'deep-space': 0, recycle: 0 };
     for (const w of wasteItems) {
@@ -62,7 +61,6 @@ export default function WasteScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {/* Header */}
         <View style={styles.header}>
           <View>
             <ThemedText type="title" style={styles.headerTitle}>Waste Management</ThemedText>
@@ -73,7 +71,6 @@ export default function WasteScreen() {
         </View>
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
-          {/* Volume Summary Cards */}
           <View style={styles.summaryRow}>
             <View style={[styles.summaryCard, styles.summaryCardWaste]}>
               <ThemedText style={styles.summaryValue}>
@@ -95,7 +92,6 @@ export default function WasteScreen() {
             </View>
           </View>
 
-          {/* Capacity Bar */}
           <View style={styles.capacitySection}>
             <View style={styles.capacityHeader}>
               <ThemedText style={styles.capacityTitle}>Mission Waste Budget</ThemedText>
@@ -117,7 +113,6 @@ export default function WasteScreen() {
             </ThemedText>
           </View>
 
-          {/* Filter Chips */}
           <View style={styles.filterRow}>
             {(['all', 'waste', 'consumed'] as FilterMode[]).map((mode) => (
               <Pressable
@@ -132,7 +127,6 @@ export default function WasteScreen() {
             ))}
           </View>
 
-          {/* Item List */}
           {filteredItems.length === 0 ? (
             <ThemedView style={styles.emptyState}>
               <Ionicons name="leaf-outline" size={60} color={Colors.textTertiary} style={{ marginBottom: 16, opacity: 0.5 }} />
@@ -197,7 +191,6 @@ export default function WasteScreen() {
             </View>
           )}
 
-          {/* Disposal Breakdown */}
           {wasteItems.length > 0 && (
             <View style={styles.disposalSection}>
               <ThemedText style={styles.disposalTitle}>Disposal Methods</ThemedText>
@@ -269,7 +262,6 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingHorizontal: 16,
   },
-  // Summary Cards
   summaryRow: {
     flexDirection: 'row',
     gap: 10,
@@ -297,7 +289,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textSecondary,
   },
-  // Capacity Bar
   capacitySection: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -338,7 +329,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  // Filter Chips
   filterRow: {
     flexDirection: 'row',
     gap: 8,
@@ -364,7 +354,6 @@ const styles = StyleSheet.create({
   filterTextActive: {
     color: Colors.blue,
   },
-  // Empty State
   emptyState: {
     alignItems: 'center',
     justifyContent: 'center',
@@ -383,7 +372,6 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     textAlign: 'center',
   },
-  // Item List
   itemList: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -438,7 +426,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textSecondary,
   },
-  // Disposal Section
   disposalSection: {
     backgroundColor: Colors.surface,
     borderRadius: 12,

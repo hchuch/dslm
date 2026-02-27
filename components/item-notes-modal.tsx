@@ -53,7 +53,6 @@ export function ItemNotesModal({ visible, item, onClose, onSave }: Props) {
         style={styles.keyboardView}
       >
         <ThemedView style={styles.container}>
-          {/* Header */}
           <View style={styles.header}>
             <Pressable onPress={onClose} style={styles.cancelButton}>
               <ThemedText style={styles.cancelText}>Cancel</ThemedText>
@@ -66,7 +65,6 @@ export function ItemNotesModal({ visible, item, onClose, onSave }: Props) {
             </Pressable>
           </View>
 
-          {/* Item Info */}
           <View style={styles.itemInfo}>
             <View style={styles.itemIcon}>
               <Ionicons name="cube" size={24} color={Colors.blue} />
@@ -77,7 +75,6 @@ export function ItemNotesModal({ visible, item, onClose, onSave }: Props) {
             </View>
           </View>
 
-          {/* Notes Input */}
           <View style={styles.inputContainer}>
             <ThemedText style={styles.inputLabel}>Notes</ThemedText>
             <TextInput
@@ -93,7 +90,6 @@ export function ItemNotesModal({ visible, item, onClose, onSave }: Props) {
             />
           </View>
 
-          {/* Tips */}
           <View style={styles.tipsContainer}>
             <Ionicons
               name="information-circle"

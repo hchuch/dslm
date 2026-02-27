@@ -14,7 +14,6 @@ type AddItemModalProps = {
     targetCtbId?: string;
 };
 
-// Categories that require expiration dates
 const EXPIRY_REQUIRED_CATEGORIES: ItemCategory[] = ['food', 'medical'];
 
 export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: AddItemModalProps) {
@@ -24,7 +23,7 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
     const [category, setCategory] = useState<ItemCategory>('misc');
     const [quantity, setQuantity] = useState('1');
     const [mass, setMass] = useState('1.0');
-    const [expiryDate, setExpiryDate] = useState(''); // Format: YYYY-MM-DD
+    const [expiryDate, setExpiryDate] = useState('');
     const [subItems, setSubItems] = useState<string[]>([]);
     const [subItemName, setSubItemName] = useState('');
 
@@ -36,13 +35,11 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
             return;
         }
 
-        // Validate expiry date for food/medical items
         if (requiresExpiry && !expiryDate) {
             showDialog('Required', `Expiration date is required for ${category} items.`);
             return;
         }
 
-        // Parse expiry date if provided
         let parsedExpiryDate: Date | undefined;
         if (expiryDate) {
             parsedExpiryDate = new Date(expiryDate);
@@ -180,7 +177,6 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
                             onChangeText={setMass}
                         />
 
-                        {/* Expiration Date - Required for food/medical */}
                         {requiresExpiry ? (
                             <>
                                 <ThemedText style={styles.label}>

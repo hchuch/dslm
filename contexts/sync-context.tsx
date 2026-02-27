@@ -42,7 +42,6 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     lastError: null,
   });
 
-  // Subscribe to status changes on mount
   useEffect(() => {
     const unsubscribe = addSyncStatusListener(setStatus);
     return () => {
@@ -51,7 +50,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
-  // Start sync after user is authenticated — always fullSync first to ensure data consistency
+  // Always fullSync first on auth to ensure local DB has all data before polling
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -60,10 +59,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         await initializeSyncService();
         initialized.current = true;
       }
-      // Always do a full sync on login to ensure local DB has all data
-      console.log('[Sync] Authenticated — performing full sync');
       await fullSync();
-      // Then start polling for incremental changes
       startSyncPolling(10000);
     })();
 

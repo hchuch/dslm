@@ -2,10 +2,9 @@ import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { router } from 'expo-router';
 
-// Configure notification behavior (show even when app is foregrounded)
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
-    shouldShowAlert: false, // Don't show native alert when app is in foreground (we use in-app banner)
+    shouldShowAlert: false,
     shouldPlaySound: true,
     shouldSetBadge: true,
     shouldShowBanner: true,
@@ -23,10 +22,6 @@ const CHANNEL_CONFIG: Record<NotificationChannel, { name: string; sound: boolean
 
 let isSetup = false;
 
-/**
- * Request notification permissions and set up Android channels.
- * Call once at app startup.
- */
 export async function setupNotifications(): Promise<boolean> {
   if (isSetup) return true;
 
@@ -38,31 +33,23 @@ export async function setupNotifications(): Promise<boolean> {
     finalStatus = status;
   }
 
-  if (finalStatus !== 'granted') {
-    console.log('[Notifications] Permission not granted');
-    return false;
-  }
+  if (finalStatus !== 'granted') return false;
 
-  // Set up Android notification channels
   if (Platform.OS === 'android') {
     for (const [channelId, config] of Object.entries(CHANNEL_CONFIG)) {
       await Notifications.setNotificationChannelAsync(channelId, {
         name: config.name,
         importance: Notifications.AndroidImportance.HIGH,
-        sound: config.sound ? 'default' : false,
+        sound: config.sound ? 'default' : null,
         vibrationPattern: [0, 250, 250, 250],
       });
     }
   }
 
   isSetup = true;
-  console.log('[Notifications] Setup complete');
   return true;
 }
 
-/**
- * Send a local notification (appears in device notification tray).
- */
 export async function sendLocalNotification(
   channel: NotificationChannel,
   title: string,
@@ -78,19 +65,15 @@ export async function sendLocalNotification(
         sound: CHANNEL_CONFIG[channel].sound ? 'default' : false,
         ...(Platform.OS === 'android' ? { channelId: channel } : {}),
       },
-      trigger: null, // Send immediately
+      trigger: null,
     });
     return id;
   } catch (error) {
-    console.error('[Notifications] Failed to send:', error);
+    console.error('Failed to send notification:', error);
     return null;
   }
 }
 
-/**
- * Set up listener for notification taps — navigates to the relevant screen.
- * Returns cleanup function.
- */
 export function setupNotificationResponseListener(): () => void {
   const subscription = Notifications.addNotificationResponseReceivedListener((response) => {
     const data = response.notification.request.content.data;
@@ -102,9 +85,6 @@ export function setupNotificationResponseListener(): () => void {
   return () => subscription.remove();
 }
 
-/**
- * Update the app badge count.
- */
 export async function setBadgeCount(count: number): Promise<void> {
   try {
     await Notifications.setBadgeCountAsync(count);

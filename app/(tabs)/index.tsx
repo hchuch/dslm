@@ -44,15 +44,12 @@ export default function HomeScreen() {
     "all" | "ctbs" | "important" | "expiring"
   >("ctbs");
 
-  // NFC Scanner Modal state
   const [showNFCScanner, setShowNFCScanner] = useState(false);
   const { showDialog } = useDialog();
 
-  // Handle NFC scan result - find and open matching CTB/Item
   const handleNFCScanSuccess = (tag: ScannedTag) => {
     const tagId = tag.payload || tag.id;
 
-    // Try to find matching CTB first (check both RFID tag ID and CTB ID)
     let matchedCTB = ctbs.find(
       (ctb) =>
         ctb.rfidTag?.id === tagId ||
@@ -60,7 +57,6 @@ export default function HomeScreen() {
         ctb.id.includes(tagId)
     );
 
-    // Also try finding by NDEF payload (the written data)
     if (!matchedCTB) {
       matchedCTB = ctbs.find((ctb) =>
         tagId.includes(ctb.id) || ctb.id.includes(tagId)
@@ -73,7 +69,6 @@ export default function HomeScreen() {
       return;
     }
 
-    // Try to find matching item by RFID tag
     const matchedItem = inventoryItems.find(
       (item) =>
         item.rfidTag?.id === tagId ||
@@ -81,14 +76,12 @@ export default function HomeScreen() {
         item.id === tagId,
     );
     if (matchedItem) {
-      // Find the item's CTB and open viewer with item focused
       const itemCTB = findCTBById(matchedItem.ctbId);
       if (itemCTB) setSelectedCTB(itemCTB);
       setSelectedItem(matchedItem);
       return;
     }
 
-    // No match found - show alert
     showDialog(
       "Tag Not Found",
       `No CTB or item found matching tag: ${tagId}`,
@@ -99,7 +92,6 @@ export default function HomeScreen() {
     );
   };
 
-  // Legacy scan handler for header button
   const handleScan = () => {
     setShowNFCScanner(true);
   };
@@ -462,7 +454,6 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Incoming Section - For astronauts/mission specialists */}
           {(user?.role === "astronaut" || user?.role === "mission-specialist" || user?.role === "admin") &&
             incomingCTBs.length > 0 && (
             <View style={styles.section}>
@@ -495,7 +486,6 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Waste Management Section */}
           {wasteAndConsumedCount > 0 && (
             <View style={styles.section}>
               <Pressable
@@ -529,7 +519,6 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Logs Section */}
           <View style={styles.section}>
             <Pressable
               style={styles.sectionLink}
@@ -554,7 +543,6 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
-          {/* Shipment Section - Role based */}
           {(user?.role === "ground-crew" ||
             user?.role === "loader" ||
             user?.role === "admin") && (
@@ -585,7 +573,6 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* Storage Section */}
           <View style={styles.section}>
             <Pressable
               style={styles.sectionLink}
@@ -634,7 +621,6 @@ export default function HomeScreen() {
           }}
         />
 
-        {/* NFC Scanner Modal */}
         <NFCScannerModal
           visible={showNFCScanner}
           mode="scan"
@@ -644,7 +630,6 @@ export default function HomeScreen() {
           onScanSuccess={handleNFCScanSuccess}
         />
 
-        {/* Floating NFC Scan Button */}
         {isSupported && (
           <Pressable
             style={({ pressed }) => [
@@ -875,7 +860,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textTertiary,
   },
-  // Floating Action Button for NFC Scan
   fab: {
     position: "absolute",
     bottom: 24,
@@ -902,7 +886,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  // Incoming badge for quick action
   incomingBadge: {
     backgroundColor: Colors.warning,
     paddingHorizontal: 8,

@@ -43,7 +43,6 @@ export function NFCScannerModal({
     const [scaleAnim] = useState(new Animated.Value(1));
     const [pulseAnim] = useState(new Animated.Value(0.3));
 
-    // Pulse animation for scanning state
     useEffect(() => {
         if (status === 'scanning') {
             const pulse = Animated.loop(
@@ -65,7 +64,6 @@ export function NFCScannerModal({
         }
     }, [status, pulseAnim]);
 
-    // Auto-start scanning when modal opens
     useEffect(() => {
         if (visible && isSupported && isEnabled) {
             handleStartOperation();
@@ -86,7 +84,6 @@ export function NFCScannerModal({
             if (tag) {
                 setStatus('success');
                 Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-                // Animate success
                 Animated.sequence([
                     Animated.timing(scaleAnim, { toValue: 1.2, duration: 150, useNativeDriver: true }),
                     Animated.timing(scaleAnim, { toValue: 1, duration: 150, useNativeDriver: true }),
@@ -195,7 +192,6 @@ export function NFCScannerModal({
         >
             <Pressable style={styles.overlay} onPress={handleCancel}>
                 <Pressable style={styles.content} onPress={() => {}}>
-                    {/* Icon with animation */}
                     <Animated.View
                         style={[
                             styles.iconContainer,
@@ -220,7 +216,6 @@ export function NFCScannerModal({
                         )}
                     </Animated.View>
 
-                    {/* Title & Subtitle */}
                     <ThemedText style={styles.title}>
                         {title || defaultTitle}
                     </ThemedText>
@@ -228,7 +223,6 @@ export function NFCScannerModal({
                         {status === 'error' ? errorMessage : (subtitle || defaultSubtitle)}
                     </ThemedText>
 
-                    {/* Status indicator */}
                     <View style={[
                         styles.statusBadge,
                         status === 'success' && styles.statusBadgeSuccess,
@@ -239,7 +233,6 @@ export function NFCScannerModal({
                         </ThemedText>
                     </View>
 
-                    {/* Write data preview (for write mode) */}
                     {mode === 'write' && writeData && status !== 'success' && (
                         <View style={styles.dataPreview}>
                             <ThemedText style={styles.dataPreviewLabel}>Writing:</ThemedText>
@@ -247,7 +240,6 @@ export function NFCScannerModal({
                         </View>
                     )}
 
-                    {/* Action buttons */}
                     <View style={styles.buttons}>
                         {status === 'error' ? (
                             <>

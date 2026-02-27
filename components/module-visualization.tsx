@@ -52,7 +52,6 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
 
   const getOccupiedCells = (stackId: StackId) => {
     const stackCtbs = ctbs.filter(ctb => ctb.location.stack === stackId && !ctb.isOutside);
-    // Map: "layer-position" → ctb color
     const occupied = new Map<string, string>();
     for (const ctb of stackCtbs) {
       const layer = ctb.location.layer || 1;
@@ -93,7 +92,6 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
           </ThemedText>
         </View>
 
-        {/* Grid */}
         <View style={styles.gridContainer}>
           {isFlex ? (
             <View style={styles.flexGrid}>
@@ -118,7 +116,6 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
           )}
         </View>
 
-        {/* Stats */}
         <View style={styles.statsContainer}>
           <View style={styles.statRow}>
             <ThemedText style={styles.statLabel}>CTBs:</ThemedText>
@@ -136,7 +133,6 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
           </View>
         </View>
 
-        {/* Footer */}
         <View style={styles.footer}>
           <ThemedText style={styles.footerText}>
             {isFlex ? 'Irregular shape' : `${positions} positions`}
@@ -151,21 +147,18 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
 
   return (
     <View>
-      {/* Main Stacks */}
       <View style={styles.stacksContainer}>
         {renderStackCard('S1')}
         {renderStackCard('S2')}
         {renderStackCard('S3')}
       </View>
 
-      {/* Flex Stacks */}
       <ThemedText style={styles.sectionLabel}>Flexible Shape Stacks</ThemedText>
       <View style={styles.stacksContainer}>
         {renderStackCard('C1', true)}
         {renderStackCard('C2', true)}
       </View>
 
-      {/* Legend */}
       <View style={styles.legend}>
         <ThemedText style={styles.legendTitle}>CTB Sizes</ThemedText>
         <View style={styles.legendGrid}>

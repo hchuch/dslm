@@ -24,7 +24,6 @@ export function PendingBadge({ isPending = false, size = 'small', style }: Pendi
   );
 }
 
-// Utility component for showing pending count
 export function PendingCount({ count }: { count: number }) {
   if (count === 0) {
     return null;

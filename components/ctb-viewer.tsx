@@ -28,7 +28,7 @@ type ViewMode = "ctb" | "item";
 type Props = {
   visible: boolean;
   ctb: CTB | null;
-  initialItem?: InventoryItem | null; // If provided, opens directly to item view
+  initialItem?: InventoryItem | null;
   onClose: () => void;
   onReceive?: (ctbId: string) => void;
 };
@@ -73,7 +73,6 @@ export function CTBViewer({
   const [moveTargetStack, setMoveTargetStack] = useState<string>("S1");
   const [moveTargetPosition, setMoveTargetPosition] = useState("");
 
-  // Undo toast state
   const [showUndoToast, setShowUndoToast] = useState(false);
   const [undoMessage, setUndoMessage] = useState("");
   const pendingDeleteRef = useRef<{
@@ -82,10 +81,8 @@ export function CTBViewer({
     data: InventoryItem | CTB;
   } | null>(null);
 
-  // NFC Scanner Modal state
   const [showNFCScanner, setShowNFCScanner] = useState(false);
 
-  // Check if CTB is incoming - match same logic as getIncomingCTBs (check items' status)
   const ctbItems = currentCTB ? getItemsInCTB(currentCTB.id) : [];
   const hasIncomingItems = ctbItems.some((item) => item.status === "incoming");
   const isIncomingCTB = hasIncomingItems || currentCTB?.location?.stack === "INCOMING";
@@ -142,7 +139,6 @@ export function CTBViewer({
 
   const handleSaveNotes = (item: InventoryItem, notes: string) => {
     updateItemNotes(item.id, notes);
-    // Update the selected item with new notes
     setSelectedItem({ ...item, notes });
   };
 
@@ -158,7 +154,6 @@ export function CTBViewer({
           text: "Delete",
           style: "destructive",
           onPress: () => {
-            // Store the item for potential undo
             pendingDeleteRef.current = {
               type: "item",
               id: selectedItem.id,
@@ -167,7 +162,6 @@ export function CTBViewer({
             setUndoMessage(`"${selectedItem.name}" deleted`);
             setShowUndoToast(true);
 
-            // Go back to CTB view
             setViewMode("ctb");
             setSelectedItem(null);
           },
@@ -177,13 +171,11 @@ export function CTBViewer({
   };
 
   const handleUndoDelete = () => {
-    // Just close the toast - the item wasn't actually deleted yet
     pendingDeleteRef.current = null;
     setShowUndoToast(false);
   };
 
   const handleConfirmDelete = () => {
-    // Actually perform the deletion
     if (pendingDeleteRef.current) {
       if (pendingDeleteRef.current.type === "item") {
         deleteItem(pendingDeleteRef.current.id);
@@ -202,13 +194,11 @@ export function CTBViewer({
   };
 
   const confirmDeleteCTB = () => {
-    // Simple password check - in production this would be more secure
     if (
       ctbDeletePassword.toLowerCase() === "delete" ||
       ctbDeletePassword === "1234"
     ) {
       if (currentCTB) {
-        // Store for potential undo
         pendingDeleteRef.current = {
           type: "ctb",
           id: currentCTB.id,
@@ -231,13 +221,11 @@ export function CTBViewer({
     newLocation: Location,
     newCtbId: string,
   ) => {
-    // Update selected item with new location and CTB after relocate
     setSelectedItem({
       ...item,
       location: newLocation,
       ctbId: newCtbId,
     });
-    // Update current CTB to the new one
     const newCTB = findCTBById(newCtbId);
     if (newCTB) {
       setCurrentCTB(newCTB);
@@ -265,7 +253,6 @@ export function CTBViewer({
       path: `${moveTargetStack}-P${pos}-L1`,
     };
     setShowMoveCTBModal(false);
-    // If CTB was outside, clear the outside flag
     if (currentCTB.isOutside) {
       await updateCTBInDb(currentCTB.id, { isOutside: false, previousLocation: undefined });
     }
@@ -294,7 +281,6 @@ export function CTBViewer({
   const handleReturnCTB = () => {
     if (!currentCTB || !currentCTB.previousLocation) return;
 
-    // Check if previous position is occupied
     const prevLoc = currentCTB.previousLocation;
     const slotsForCTB = Math.max(1, Math.ceil(currentCTB.size));
     const isOccupied = allCTBs.some((c) => {
@@ -354,10 +340,8 @@ export function CTBViewer({
     );
   };
 
-  // How many slots the current CTB needs
   const slotsNeeded = currentCTB ? Math.max(1, Math.ceil(currentCTB.size)) : 1;
 
-  // Get ALL occupied slots for target stack (accounting for multi-position CTBs)
   const occupiedPositions = useMemo(() => {
     if (!currentCTB) return new Set<number>();
     const occupied = new Set<number>();
@@ -373,7 +357,6 @@ export function CTBViewer({
     return occupied;
   }, [allCTBs, moveTargetStack, currentCTB]);
 
-  // Check if the CTB can fit starting at a given position
   const canFitAtPosition = useCallback(
     (pos: number) => {
       if (pos + slotsNeeded - 1 > 16) return false;
@@ -385,10 +368,8 @@ export function CTBViewer({
     [occupiedPositions, slotsNeeded],
   );
 
-  // Reset state only when modal first opens (visible transitions false→true).
-  // We intentionally exclude findCTBById from deps — it's a lookup utility
-  // whose identity changes on every context update, which would reset local
-  // state (currentCTB, navigation, etc.) and revert in-flight edits.
+  // findCTBById excluded from deps — its identity changes on every context
+  // update, which would reset local state and revert in-flight edits.
   const prevVisibleRef = useRef(false);
   useEffect(() => {
     const justOpened = visible && !prevVisibleRef.current;
@@ -420,7 +401,6 @@ export function CTBViewer({
   if (!currentCTB) return null;
 
   const childCTBs = getChildCTBs(currentCTB.id);
-  // Filter out items that are pending deletion
   const allItems = getItemsInCTB(currentCTB.id);
   const items = allItems.filter(
     (item) =>
@@ -444,11 +424,9 @@ export function CTBViewer({
 
   const handleGoBack = () => {
     if (viewMode === "item") {
-      // Go back to CTB view
       setViewMode("ctb");
       setSelectedItem(null);
     } else if (navigationStack.length > 0) {
-      // Go back to parent CTB
       const parent = navigationStack[navigationStack.length - 1];
       setNavigationStack((prev) => prev.slice(0, -1));
       setCurrentCTB(parent);
@@ -457,7 +435,6 @@ export function CTBViewer({
 
   const canGoBack = viewMode === "item" || navigationStack.length > 0;
 
-  // Render item detail view
   const renderItemView = () => {
     if (!selectedItem) return null;
 
@@ -465,7 +442,6 @@ export function CTBViewer({
 
     return (
       <ScrollView style={styles.content}>
-        {/* Incoming Notice */}
         {isItemIncoming && (
           <View style={styles.incomingNotice}>
             <View style={styles.incomingNoticeIcon}>
@@ -493,7 +469,6 @@ export function CTBViewer({
           </View>
         )}
 
-        {/* Item Header */}
         <View style={styles.itemHeader}>
           <View style={styles.itemIconLarge}>
             <Ionicons
@@ -515,7 +490,6 @@ export function CTBViewer({
           </View>
         </View>
 
-        {/* Quick Stats */}
         <View style={styles.statsGrid}>
           <View style={styles.statCard}>
             <ThemedText style={styles.statValue}>
@@ -537,7 +511,6 @@ export function CTBViewer({
           </View>
         </View>
 
-        {/* Details Section */}
         <View style={styles.detailSection}>
           <ThemedText style={styles.sectionTitle}>Details</ThemedText>
 
@@ -597,7 +570,6 @@ export function CTBViewer({
           )}
         </View>
 
-        {/* Sub-items */}
         {selectedItem.subItems && selectedItem.subItems.length > 0 && (
           <View style={styles.detailSection}>
             <ThemedText style={styles.sectionTitle}>
@@ -621,7 +593,6 @@ export function CTBViewer({
           </View>
         )}
 
-        {/* Notes Section */}
         <View style={styles.detailSection}>
           <View style={styles.notesHeader}>
             <ThemedText style={styles.sectionTitle}>Notes</ThemedText>
@@ -641,11 +612,9 @@ export function CTBViewer({
           )}
         </View>
 
-        {/* Actions */}
         <View style={styles.actionsSection}>
           <ThemedText style={styles.sectionTitle}>Actions</ThemedText>
 
-          {/* Relocate */}
           <Pressable
             style={({ pressed }) => [
               styles.actionButton,
@@ -669,7 +638,6 @@ export function CTBViewer({
             />
           </Pressable>
 
-          {/* Edit Notes */}
           <Pressable
             style={({ pressed }) => [
               styles.actionButton,
@@ -694,7 +662,6 @@ export function CTBViewer({
             />
           </Pressable>
 
-          {/* Consume Item */}
           {(selectedItem.status === "stock" || selectedItem.status === "delivered") && (
             <Pressable
               style={({ pressed }) => [
@@ -718,7 +685,6 @@ export function CTBViewer({
             </Pressable>
           )}
 
-          {/* Mark as Waste */}
           {(selectedItem.status === "stock" || selectedItem.status === "delivered") && (
             <Pressable
               style={({ pressed }) => [
@@ -742,7 +708,6 @@ export function CTBViewer({
             </Pressable>
           )}
 
-          {/* Delete Item */}
           <Pressable
             style={({ pressed }) => [
               styles.actionButton,
@@ -774,15 +739,12 @@ export function CTBViewer({
     );
   };
 
-  // Helper to format volume in liters
   const formatVolume = (volumeM3: number): string => {
     return `${Math.round(volumeM3 * 1000)}L`;
   };
 
-  // Render CTB contents view
   const renderCTBView = () => (
     <ScrollView style={styles.content}>
-      {/* CTB Stats - Primary */}
       <View style={styles.ctbStats}>
         <View style={styles.ctbStatItem}>
           <ThemedText style={styles.ctbStatValue}>{currentCTB.size}</ThemedText>
@@ -808,7 +770,6 @@ export function CTBViewer({
         </View>
       </View>
 
-      {/* CTB Stats - Secondary */}
       <View style={styles.ctbStatsSecondary}>
         <View style={styles.ctbStatItemSecondary}>
           <ThemedText style={styles.ctbStatValueSecondary}>{items.length}</ThemedText>
@@ -830,7 +791,6 @@ export function CTBViewer({
         )}
       </View>
 
-      {/* NFC Tag - Prominent CTA when unassigned */}
       {currentCTB.rfidTag && nfcSupported && (!currentCTB.rfidTag.id || currentCTB.rfidTag.id.startsWith('RFID-')) && (
         <Pressable
           style={({ pressed }) => [
@@ -855,7 +815,6 @@ export function CTBViewer({
         </Pressable>
       )}
 
-      {/* NFC Tag Info - compact when assigned */}
       {currentCTB.rfidTag && currentCTB.rfidTag.id && !currentCTB.rfidTag.id.startsWith('RFID-') && (
         <View style={styles.nfcTagInfo}>
           <View style={styles.nfcTagRow}>
@@ -890,7 +849,6 @@ export function CTBViewer({
         </View>
       )}
 
-      {/* Receive Button - show for incoming CTBs */}
       {canReceive && navigationStack.length === 0 && (
         <Pressable
           style={({ pressed }) => [
@@ -899,7 +857,6 @@ export function CTBViewer({
           ]}
           onPress={() => {
             if (onReceive) {
-              // Caller handles its own confirmation
               onReceive(currentCTB.id);
             } else {
               showDialog(
@@ -924,7 +881,6 @@ export function CTBViewer({
         </Pressable>
       )}
 
-      {/* Nested CTBs Section */}
       {childCTBs.length > 0 && (
         <View style={styles.section}>
           <ThemedText style={styles.sectionTitle}>Nested CTBs</ThemedText>
@@ -956,7 +912,6 @@ export function CTBViewer({
         </View>
       )}
 
-      {/* Items Section */}
       <View style={styles.section}>
         <ThemedText style={styles.sectionTitle}>Contents</ThemedText>
         {items.length === 0 ? (
@@ -1010,11 +965,9 @@ export function CTBViewer({
         )}
       </View>
 
-      {/* CTB Actions Section */}
       <View style={styles.actionsSection}>
         <ThemedText style={styles.sectionTitle}>CTB Actions</ThemedText>
 
-        {/* Take Out CTB — only when stored in a stack */}
         {!isIncomingCTB && !currentCTB.isOutside && (
           <Pressable
             style={({ pressed }) => [
@@ -1037,7 +990,6 @@ export function CTBViewer({
           </Pressable>
         )}
 
-        {/* Return to Stack — only when CTB is outside */}
         {currentCTB.isOutside && currentCTB.previousLocation && (
           <Pressable
             style={({ pressed }) => [
@@ -1059,7 +1011,6 @@ export function CTBViewer({
           </Pressable>
         )}
 
-        {/* Move CTB */}
         {!isIncomingCTB && (
           <Pressable
             style={({ pressed }) => [
@@ -1082,7 +1033,6 @@ export function CTBViewer({
           </Pressable>
         )}
 
-        {/* Delete CTB */}
         <Pressable
           style={({ pressed }) => [
             styles.actionButton,
@@ -1120,7 +1070,6 @@ export function CTBViewer({
       statusBarTranslucent
     >
       <ThemedView style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <View style={styles.headerRow}>
             {canGoBack ? (
@@ -1141,7 +1090,6 @@ export function CTBViewer({
             </Pressable>
           </View>
 
-          {/* Breadcrumb */}
           <View style={styles.breadcrumb}>
             <Ionicons name="cube" size={14} color={Colors.textSecondary} />
             <ThemedText style={styles.breadcrumbText}>
@@ -1157,7 +1105,6 @@ export function CTBViewer({
 
         {viewMode === "item" ? renderItemView() : renderCTBView()}
 
-        {/* Relocate Item Modal */}
         <RelocateItemModal
           visible={showRelocateModal}
           item={selectedItem}
@@ -1165,7 +1112,6 @@ export function CTBViewer({
           onRelocated={handleItemRelocated}
         />
 
-        {/* Item Notes Modal */}
         <ItemNotesModal
           visible={showNotesModal}
           item={selectedItem}
@@ -1173,7 +1119,6 @@ export function CTBViewer({
           onSave={handleSaveNotes}
         />
 
-        {/* Delete CTB Confirmation Modal */}
         <Modal
           visible={showDeleteCTBModal}
           animationType="fade"
@@ -1234,7 +1179,6 @@ export function CTBViewer({
           </Pressable>
         </Modal>
 
-        {/* Move CTB Modal */}
         <Modal
           visible={showMoveCTBModal}
           animationType="fade"
@@ -1256,7 +1200,6 @@ export function CTBViewer({
                 Select a destination stack and position for {currentCTB?.id}.
               </ThemedText>
 
-              {/* Stack Picker */}
               <View style={styles.moveStackPicker}>
                 {(["S1", "S2", "S3", "C1", "C2"] as const).map((stackId) => (
                   <Pressable
@@ -1282,7 +1225,6 @@ export function CTBViewer({
                 ))}
               </View>
 
-              {/* Position Picker */}
               <ThemedText style={styles.movePositionLabel}>
                 {slotsNeeded > 1
                   ? `Starting position (needs ${slotsNeeded} consecutive slots)`
@@ -1348,7 +1290,6 @@ export function CTBViewer({
           </Pressable>
         </Modal>
 
-        {/* NFC Scanner Modal for assigning tags */}
         <NFCScannerModal
           visible={showNFCScanner}
           mode="write"
@@ -1358,7 +1299,6 @@ export function CTBViewer({
           onClose={() => setShowNFCScanner(false)}
           onWriteSuccess={async (result) => {
             if (result.success && currentCTB) {
-              // Update the CTB's rfidTag with the real NFC tag ID
               const newTag = {
                 type: "RFID" as const,
                 id: result.tagId || `NFC-${Date.now()}`,
@@ -1367,7 +1307,6 @@ export function CTBViewer({
               await updateCTBTag(currentCTB.id, newTag);
               setCurrentCTB({ ...currentCTB, rfidTag: newTag });
 
-              // Log NFC assignment as history entry on items in this CTB
               const ctbItemsForLog = getItemsInCTB(currentCTB.id);
               for (const item of ctbItemsForLog) {
                 const entry = {
@@ -1388,7 +1327,6 @@ export function CTBViewer({
             appear above modal content instead of behind it */}
         <DialogOverlay />
 
-        {/* Undo Toast */}
         <UndoToast
           visible={showUndoToast}
           message={undoMessage}
@@ -1401,7 +1339,6 @@ export function CTBViewer({
   );
 }
 
-// Helper functions
 function getCategoryIcon(category: string): keyof typeof Ionicons.glyphMap {
   switch (category) {
     case "food":
@@ -1494,7 +1431,6 @@ const styles = StyleSheet.create({
     flex: 1,
     padding: 16,
   },
-  // CTB Stats
   ctbStats: {
     flexDirection: "row",
     backgroundColor: Colors.surface,
@@ -1517,7 +1453,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 2,
   },
-  // Secondary stats row
   ctbStatsSecondary: {
     flexDirection: "row",
     backgroundColor: Colors.surface,
@@ -1542,7 +1477,6 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     marginTop: 2,
   },
-  // NFC Assign CTA (prominent, unassigned)
   nfcAssignCTA: {
     backgroundColor: "rgba(234, 179, 8, 0.12)",
     borderRadius: 12,
@@ -1590,7 +1524,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: "#000",
   },
-  // NFC Tag Info (assigned, compact)
   nfcTagInfo: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -1641,7 +1574,6 @@ const styles = StyleSheet.create({
     color: Colors.blue,
     fontWeight: "600",
   },
-  // NFC tag actions row
   nfcTagActions: {
     flexDirection: "row",
     gap: 8,
@@ -1662,7 +1594,6 @@ const styles = StyleSheet.create({
     color: Colors.error,
     fontWeight: "600",
   },
-  // Move CTB modal styles
   moveStackPicker: {
     flexDirection: "row",
     gap: 8,
@@ -1738,7 +1669,6 @@ const styles = StyleSheet.create({
   movePositionTextSelected: {
     color: "#000",
   },
-  // Receive button
   receiveButton: {
     backgroundColor: Colors.success,
     flexDirection: "row",
@@ -1757,7 +1687,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
   },
-  // Sections
   section: {
     marginBottom: 24,
   },
@@ -1769,7 +1698,6 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: 12,
   },
-  // List rows
   listRow: {
     flexDirection: "row",
     alignItems: "center",
@@ -1805,7 +1733,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
   },
-  // Status badges
   statusBadge: {
     paddingHorizontal: 8,
     paddingVertical: 4,
@@ -1827,7 +1754,6 @@ const styles = StyleSheet.create({
     fontWeight: "700",
     color: Colors.textPrimary,
   },
-  // Empty state
   emptyState: {
     alignItems: "center",
     paddingVertical: 40,
@@ -1837,7 +1763,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textTertiary,
   },
-  // Item view
   itemHeader: {
     alignItems: "center",
     paddingVertical: 24,
@@ -1882,7 +1807,6 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 4,
   },
-  // Detail section
   detailSection: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -1908,7 +1832,6 @@ const styles = StyleSheet.create({
     textAlign: "right",
     marginLeft: 16,
   },
-  // Sub-items
   subItemCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1926,7 +1849,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
   },
-  // Actions section
   actionsSection: {
     marginTop: 8,
     marginBottom: 32,
@@ -1990,7 +1912,6 @@ const styles = StyleSheet.create({
     color: Colors.error,
     marginBottom: 2,
   },
-  // Notes styles
   notesHeader: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -2019,7 +1940,6 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     fontStyle: "italic",
   },
-  // Delete CTB Modal styles
   deleteModalOverlay: {
     flex: 1,
     backgroundColor: "rgba(0, 0, 0, 0.6)",
@@ -2098,7 +2018,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#FFFFFF",
   },
-  // Incoming notice styles
   incomingNotice: {
     backgroundColor: "rgba(234, 179, 8, 0.12)",
     borderRadius: 12,

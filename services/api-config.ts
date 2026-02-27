@@ -5,10 +5,6 @@ const BUILD_TIME_URL = process.env.EXPO_PUBLIC_API_URL || 'http://localhost:4000
 
 let cachedUrl: string | null = null;
 
-/**
- * Get the API base URL. Checks for a user-configured override first,
- * then falls back to the build-time EXPO_PUBLIC_API_URL, then localhost.
- */
 export async function getApiBaseUrl(): Promise<string> {
   if (cachedUrl) return cachedUrl;
 
@@ -26,13 +22,8 @@ export async function getApiBaseUrl(): Promise<string> {
   return BUILD_TIME_URL;
 }
 
-/**
- * Set a custom server URL (persists across app restarts).
- * Pass null to reset to default.
- */
 export async function setApiBaseUrl(url: string | null): Promise<void> {
   if (url) {
-    // Normalize: remove trailing slash
     const normalized = url.replace(/\/+$/, '');
     await SecureStore.setItemAsync(STORAGE_KEY, normalized);
     cachedUrl = normalized;
@@ -42,10 +33,6 @@ export async function setApiBaseUrl(url: string | null): Promise<void> {
   }
 }
 
-/**
- * Synchronous getter - returns cached value or build-time default.
- * Call getApiBaseUrl() at least once before using this.
- */
 export function getApiBaseUrlSync(): string {
   return cachedUrl || BUILD_TIME_URL;
 }

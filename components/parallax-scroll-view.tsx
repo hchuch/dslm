@@ -6,7 +6,6 @@ import { useColorScheme } from '../hooks/use-color-scheme';
 import { useThemeColor } from '../hooks/use-theme-color';
 import { ThemedView } from './themed-view';
 
-// Default header height; can be overridden by prop
 const DEFAULT_HEADER_HEIGHT = 96;
 
 type Props = PropsWithChildren<{

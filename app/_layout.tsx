@@ -34,7 +34,6 @@ const DSLMTheme = {
 export default function RootLayout() {
   const colorScheme = useColorScheme();
 
-  // Load saved server URL from SecureStore on startup
   useEffect(() => { getApiBaseUrl(); }, []);
 
   return (

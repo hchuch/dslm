@@ -44,7 +44,6 @@ export function RelocateItemModal({
   const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Reset state when modal opens
   React.useEffect(() => {
     if (visible && item) {
       setSelectedCTB(null);
@@ -52,20 +51,17 @@ export function RelocateItemModal({
     }
   }, [visible, item]);
 
-  // Calculate used volume in a CTB
   const getUsedVolume = (ctb: CTB): number => {
     const itemsInCTB = getItemsInCTB(ctb.id);
     return itemsInCTB.reduce((sum, i) => sum + i.volume, 0);
   };
 
-  // Calculate available volume in a CTB
   const getAvailableVolume = (ctb: CTB): number => {
     const capacity = getCTBCapacity(ctb);
     const used = getUsedVolume(ctb);
     return Math.max(0, capacity - used);
   };
 
-  // Check if item fits in CTB
   const itemFitsInCTB = React.useCallback(
     (ctb: CTB): boolean => {
       if (!item) return false;
@@ -78,11 +74,9 @@ export function RelocateItemModal({
     [item, getItemsInCTB],
   );
 
-  // Filter and sort CTBs for selection
   const availableCTBs = useMemo(() => {
     if (!item) return [];
 
-    // Exclude current CTB and waste CTBs
     let filtered = ctbs.filter(
       (ctb) =>
         ctb.id !== item.ctbId &&
@@ -90,7 +84,6 @@ export function RelocateItemModal({
         ctb.location.stack !== "INCOMING",
     );
 
-    // Apply search filter
     if (searchQuery) {
       const query = searchQuery.toLowerCase();
       filtered = filtered.filter(
@@ -101,7 +94,6 @@ export function RelocateItemModal({
       );
     }
 
-    // Sort: CTBs with space first, then by location
     return filtered.sort((a, b) => {
       const aFits = itemFitsInCTB(a);
       const bFits = itemFitsInCTB(b);
@@ -111,7 +103,6 @@ export function RelocateItemModal({
     });
   }, [ctbs, item, searchQuery, itemFitsInCTB]);
 
-  // Group CTBs by stack for easier navigation
   const groupedCTBs = useMemo(() => {
     const groups: Record<string, CTB[]> = {};
     availableCTBs.forEach((ctb) => {
@@ -172,7 +163,6 @@ export function RelocateItemModal({
       statusBarTranslucent
     >
       <ThemedView style={styles.container}>
-        {/* Header */}
         <View style={styles.header}>
           <Pressable onPress={onClose} style={styles.cancelButton}>
             <ThemedText style={styles.cancelText}>Cancel</ThemedText>
@@ -195,7 +185,6 @@ export function RelocateItemModal({
         </View>
 
         <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-          {/* Item Info */}
           <View style={styles.itemCard}>
             <View style={styles.itemIcon}>
               <Ionicons name="cube" size={24} color={Colors.blue} />
@@ -211,7 +200,6 @@ export function RelocateItemModal({
             </View>
           </View>
 
-          {/* Search */}
           <View style={styles.searchContainer}>
             <Ionicons name="search" size={18} color={Colors.textTertiary} />
             <TextInput
@@ -232,7 +220,6 @@ export function RelocateItemModal({
             )}
           </View>
 
-          {/* Destination CTB Selection */}
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>
               Select Destination CTB ({availableCTBs.length} available)
@@ -314,7 +301,6 @@ export function RelocateItemModal({
                             </ThemedText>
                           </View>
 
-                          {/* Capacity bar */}
                           <View style={styles.capacityContainer}>
                             <View style={styles.capacityBar}>
                               <View
@@ -359,7 +345,6 @@ export function RelocateItemModal({
           </View>
         </ScrollView>
 
-        {/* Footer with selection summary */}
         <View style={styles.footer}>
           {selectedCTB ? (
             <View style={styles.selectionSummary}>

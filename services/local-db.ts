@@ -26,7 +26,6 @@ export async function getDatabase(): Promise<SQLite.SQLiteDatabase> {
 
 async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void> {
   await database.execAsync(`
-    -- Categories table
     CREATE TABLE IF NOT EXISTS categories (
       id TEXT PRIMARY KEY,
       name TEXT UNIQUE NOT NULL,
@@ -41,7 +40,6 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       localOperation TEXT
     );
 
-    -- Stacks table
     CREATE TABLE IF NOT EXISTS stacks (
       id TEXT PRIMARY KEY,
       stackId TEXT UNIQUE NOT NULL,
@@ -54,7 +52,6 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       syncVersion INTEGER DEFAULT 0
     );
 
-    -- CTBs table
     CREATE TABLE IF NOT EXISTS ctbs (
       id TEXT PRIMARY KEY,
       ctbId TEXT UNIQUE NOT NULL,
@@ -85,7 +82,6 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       localOperation TEXT
     );
 
-    -- Inventory Items table
     CREATE TABLE IF NOT EXISTS items (
       id TEXT PRIMARY KEY,
       itemId TEXT UNIQUE NOT NULL,
@@ -120,7 +116,6 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       localOperation TEXT
     );
 
-    -- Item History table
     CREATE TABLE IF NOT EXISTS itemHistory (
       id TEXT PRIMARY KEY,
       itemId TEXT NOT NULL,
@@ -141,7 +136,6 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       pendingSync INTEGER DEFAULT 0
     );
 
-    -- Shipments table
     CREATE TABLE IF NOT EXISTS shipments (
       id TEXT PRIMARY KEY,
       manifestId TEXT UNIQUE NOT NULL,
@@ -158,7 +152,6 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       localOperation TEXT
     );
 
-    -- Waste Items table
     CREATE TABLE IF NOT EXISTS wasteItems (
       id TEXT PRIMARY KEY,
       itemId TEXT NOT NULL,
@@ -173,13 +166,11 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       localOperation TEXT
     );
 
-    -- Sync metadata
     CREATE TABLE IF NOT EXISTS syncMetadata (
       key TEXT PRIMARY KEY,
       value TEXT
     );
 
-    -- Pending changes queue
     CREATE TABLE IF NOT EXISTS pendingChanges (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       tableName TEXT NOT NULL,
@@ -189,7 +180,6 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       createdAt TEXT DEFAULT CURRENT_TIMESTAMP
     );
 
-    -- Cached users for offline authentication
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       username TEXT UNIQUE NOT NULL,
@@ -201,21 +191,16 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       syncVersion INTEGER DEFAULT 0
     );
 
-    -- Initialize sync metadata
     INSERT OR IGNORE INTO syncMetadata (key, value) VALUES ('lastSyncVersion', '0');
     INSERT OR IGNORE INTO syncMetadata (key, value) VALUES ('lastSyncTime', NULL);
     INSERT OR IGNORE INTO syncMetadata (key, value) VALUES ('clientId', '${generateClientId()}');
   `);
 
-  // Seed default categories and stacks if empty
   await seedDefaultData(database);
-
-  // Run migrations for existing databases
   await runMigrations(database);
 }
 
 async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
-  // Check if migrations table exists
   await database.execAsync(`
     CREATE TABLE IF NOT EXISTS migrations (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -224,7 +209,6 @@ async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
     );
   `);
 
-  // Migration: Add packedVolume, unpackedVolume, nestingDepth columns to ctbs table
   const migrationName = 'add_ctb_volume_columns';
   const existingMigration = await database.getAllAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM migrations WHERE name = ?',
@@ -233,7 +217,6 @@ async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
 
   if (existingMigration[0]?.count === 0) {
     try {
-      // Check if columns already exist (in case table was recreated with new schema)
       const tableInfo = await database.getAllAsync<{ name: string }>(
         "PRAGMA table_info(ctbs)"
       );
@@ -249,18 +232,15 @@ async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
         await database.runAsync('ALTER TABLE ctbs ADD COLUMN nestingDepth INTEGER DEFAULT 0');
       }
 
-      // Mark migration as complete
       await database.runAsync(
         'INSERT INTO migrations (name) VALUES (?)',
         [migrationName]
       );
-      console.log('[LocalDB] Migration completed: add_ctb_volume_columns');
     } catch (error) {
       console.error('[LocalDB] Migration error:', error);
     }
   }
 
-  // Migration: Add isImportant column to categories table
   const categoryMigrationName = 'add_category_isImportant';
   const existingCategoryMigration = await database.getAllAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM migrations WHERE name = ?',
@@ -278,18 +258,15 @@ async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
         await database.runAsync('ALTER TABLE categories ADD COLUMN isImportant INTEGER DEFAULT 0');
       }
 
-      // Mark migration as complete
       await database.runAsync(
         'INSERT INTO migrations (name) VALUES (?)',
         [categoryMigrationName]
       );
-      console.log('[LocalDB] Migration completed: add_category_isImportant');
     } catch (error) {
       console.error('[LocalDB] Migration error:', error);
     }
   }
 
-  // Migration: Add ctbIds, totalMass, itemCount columns to shipments table
   const shipmentMigrationName = 'add_shipment_extra_columns';
   const existingShipmentMigration = await database.getAllAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM migrations WHERE name = ?',
@@ -315,7 +292,6 @@ async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
     );
   }
 
-  // Migration: Add isOutside and previousLocation columns to ctbs table
   const outsideMigrationName = 'add_ctb_outside_columns';
   const existingOutsideMigration = await database.getAllAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM migrations WHERE name = ?',
@@ -338,7 +314,6 @@ async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
       'INSERT INTO migrations (name) VALUES (?)',
       [outsideMigrationName]
     );
-    console.log('[LocalDB] Migration completed: add_ctb_outside_columns');
   }
 }
 
@@ -347,7 +322,6 @@ function generateClientId(): string {
 }
 
 async function seedDefaultData(database: SQLite.SQLiteDatabase): Promise<void> {
-  // Check if categories exist
   const existingCategories = await database.getAllAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM categories'
   );
@@ -375,7 +349,6 @@ async function seedDefaultData(database: SQLite.SQLiteDatabase): Promise<void> {
     }
   }
 
-  // Check if stacks exist
   const existingStacks = await database.getAllAsync<{ count: number }>(
     'SELECT COUNT(*) as count FROM stacks'
   );
@@ -398,8 +371,6 @@ async function seedDefaultData(database: SQLite.SQLiteDatabase): Promise<void> {
     }
   }
 }
-
-// ===== Category Operations =====
 
 export interface CategoryRecord {
   id: string;
@@ -431,8 +402,6 @@ export async function createCategory(category: Omit<CategoryRecord, 'isSystem' |
   );
   await queueChange('Category', category.id, 'create', category);
 }
-
-// ===== CTB Operations =====
 
 export async function getAllCTBs(): Promise<CTB[]> {
   const db = await getDatabase();
@@ -550,7 +519,6 @@ export async function deleteCTB(ctbId: string): Promise<void> {
   await queueChange('CTB', ctbId, 'delete', { ctbId });
 }
 
-// Volume specs for CTB sizes (m^3) - duplicated here for offline use
 const CTB_VOLUME_SPECS: Record<CTBSize, { packed: number; unpacked: number }> = {
   0.5:  { packed: 0.014, unpacked: 0.012 },
   1.0:  { packed: 0.028, unpacked: 0.025 },
@@ -623,15 +591,12 @@ function ctbToData(ctb: CTB): Record<string, any> {
   };
 }
 
-// ===== Item Operations =====
-
 export async function getAllItems(): Promise<InventoryItem[]> {
   const db = await getDatabase();
   const rows = await db.getAllAsync<any>(
     'SELECT * FROM items WHERE deletedAt IS NULL ORDER BY loadedDate DESC'
   );
 
-  // Also get history for each item
   const items = await Promise.all(rows.map(async (row) => {
     const historyRows = await db.getAllAsync<any>(
       'SELECT * FROM itemHistory WHERE itemId = ? ORDER BY timestamp DESC',
@@ -702,7 +667,6 @@ export async function createItem(item: InventoryItem): Promise<void> {
     ]
   );
 
-  // Create initial history entry
   if (item.history.length > 0) {
     for (const entry of item.history) {
       await createHistoryEntry(item.id, entry);
@@ -834,14 +798,9 @@ function rowToItem(row: any, historyRows: any[]): InventoryItem {
   };
 }
 
-/**
- * Deduplicate history entries that may exist due to sync creating entries with different IDs.
- * Two entries are considered duplicates if they have the same action and timestamp (within 2s).
- */
 function deduplicateHistory(entries: ItemHistoryEntry[]): ItemHistoryEntry[] {
   const seen = new Set<string>();
   return entries.filter(entry => {
-    // Round timestamp to nearest 2s to catch near-duplicate timestamps
     const timeKey = Math.round(entry.timestamp.getTime() / 2000);
     const key = `${entry.action}-${timeKey}`;
     if (seen.has(key)) return false;
@@ -890,8 +849,6 @@ function itemToData(item: InventoryItem): Record<string, any> {
     criticality: item.criticality,
   };
 }
-
-// ===== Waste Item Operations =====
 
 export interface WasteItemRecord {
   itemId: string;
@@ -957,8 +914,6 @@ export async function deleteWasteItem(itemId: string): Promise<void> {
   await queueChange('WasteItem', itemId, 'delete', { itemId });
 }
 
-// ===== Shipment Operations =====
-
 export async function createShipment(shipment: Shipment): Promise<void> {
   const db = await getDatabase();
   await db.runAsync(
@@ -1007,8 +962,6 @@ export async function getAllShipments(): Promise<Shipment[]> {
   }));
 }
 
-// ===== Stack Operations =====
-
 export async function getAllStacks(): Promise<StackConfiguration[]> {
   const db = await getDatabase();
   const rows = await db.getAllAsync<any>('SELECT * FROM stacks ORDER BY stackId ASC');
@@ -1022,8 +975,6 @@ export async function getAllStacks(): Promise<StackConfiguration[]> {
     currentUtilization: row.currentUtilization,
   }));
 }
-
-// ===== Sync Metadata Operations =====
 
 export async function getLastSyncVersion(): Promise<number> {
   const db = await getDatabase();
@@ -1067,8 +1018,6 @@ export async function getClientId(): Promise<string> {
   );
   return rows[0]?.value || generateClientId();
 }
-
-// ===== Pending Changes Queue =====
 
 export interface PendingChange {
   id: number;
@@ -1125,8 +1074,6 @@ export async function clearAllPendingChanges(): Promise<void> {
   await db.runAsync('DELETE FROM pendingChanges');
 }
 
-// ===== Bulk Import (for sync) =====
-
 export async function bulkImportData(data: {
   categories?: any[];
   stacks?: any[];
@@ -1136,7 +1083,6 @@ export async function bulkImportData(data: {
 }): Promise<void> {
   const db = await getDatabase();
 
-  // Import categories
   if (data.categories) {
     for (const cat of data.categories) {
       await db.runAsync(
@@ -1147,7 +1093,6 @@ export async function bulkImportData(data: {
     }
   }
 
-  // Import stacks
   if (data.stacks) {
     for (const stack of data.stacks) {
       await db.runAsync(
@@ -1158,7 +1103,6 @@ export async function bulkImportData(data: {
     }
   }
 
-  // Import CTBs
   if (data.ctbs) {
     for (const ctb of data.ctbs) {
       await db.runAsync(
@@ -1169,7 +1113,6 @@ export async function bulkImportData(data: {
     }
   }
 
-  // Import items
   if (data.items) {
     for (const item of data.items) {
       await db.runAsync(
@@ -1180,7 +1123,6 @@ export async function bulkImportData(data: {
     }
   }
 
-  // Import history entries
   if (data.historyEntries) {
     for (const entry of data.historyEntries) {
       await db.runAsync(
@@ -1191,8 +1133,6 @@ export async function bulkImportData(data: {
     }
   }
 }
-
-// ===== User Operations (Offline Auth) =====
 
 export interface CachedUser {
   id: string;
@@ -1245,19 +1185,14 @@ export async function clearAllCachedUsers(): Promise<void> {
   await db.runAsync('DELETE FROM users');
 }
 
-// Simple hash function for offline password verification
-// Note: This is a basic hash for offline use only. Server-side uses bcrypt.
 export function hashPassword(password: string): string {
-  // Using a simple but effective hash for client-side offline verification
-  // This is NOT for security-critical storage, just offline convenience
   let hash = 0;
   const str = password + 'dslm-offline-salt';
   for (let i = 0; i < str.length; i++) {
     const char = str.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
-    hash = hash & hash; // Convert to 32-bit integer
+    hash = hash & hash;
   }
-  // Add more entropy with a second pass
   const base = Math.abs(hash).toString(36);
   let hash2 = 0;
   for (let i = 0; i < str.length; i++) {
@@ -1272,8 +1207,6 @@ export function verifyPassword(password: string, storedHash: string): boolean {
   return hashPassword(password) === storedHash;
 }
 
-// ===== Clear and Reset =====
-
 export async function resetDatabase(): Promise<void> {
   const db = await getDatabase();
   await db.execAsync(`
@@ -1287,7 +1220,6 @@ export async function resetDatabase(): Promise<void> {
   `);
 }
 
-// Reset everything including cached users (full factory reset)
 export async function factoryReset(): Promise<void> {
   const db = await getDatabase();
   await db.execAsync(`

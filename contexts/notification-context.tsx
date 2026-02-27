@@ -28,7 +28,6 @@ const TYPE_TO_CHANNEL: Record<NotificationType, NotificationChannel> = {
   success: 'success',
 };
 
-// Snapshot of item state for diff detection
 type ItemSnapshot = { id: string; name: string; status: ItemStatus; category: string; ctbId: string; locationStack: string };
 
 function snapshotItems(items: InventoryItem[]): Map<string, ItemSnapshot> {
@@ -52,7 +51,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const { inventoryItems, ctbs, getExpiringItems, categories } = useInventory();
   const router = useRouter();
 
-  // Track previous state for diff detection
   const prevIncomingCtbIdsRef = useRef<Set<string>>(new Set());
   const prevExpiringIdsRef = useRef<Set<string>>(new Set());
   const prevItemSnapshotRef = useRef<Map<string, ItemSnapshot>>(new Map());
@@ -60,14 +58,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
   const initialLoadRef = useRef(true);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
-  // Set up native notifications on mount
   useEffect(() => {
     setupNotifications();
     const cleanup = setupNotificationResponseListener();
     return cleanup;
   }, []);
 
-  // Track app state for deciding in-app vs native notification
   useEffect(() => {
     const sub = AppState.addEventListener('change', (state) => {
       appStateRef.current = state;
@@ -79,7 +75,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const isAppActive = appStateRef.current === 'active';
 
     if (isAppActive) {
-      // App is in foreground — show in-app banner only, no native notification
       const notification: Notification = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type,
@@ -89,7 +84,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       };
       setQueue(prev => [...prev, notification]);
     } else {
-      // App is in background — send native notification
       sendLocalNotification(
         TYPE_TO_CHANNEL[type],
         title,
@@ -99,7 +93,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     }
   }, []);
 
-  // Show next notification from queue when current is dismissed
   useEffect(() => {
     if (!current && queue.length > 0) {
       setCurrent(queue[0]);
@@ -111,13 +104,11 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     setCurrent(null);
   }, []);
 
-  // Listen for sync data changes
   useEffect(() => {
     const unsubscribe = addDataChangeListener(() => {});
     return unsubscribe;
   }, []);
 
-  // === Detect new incoming CTBs and received CTBs ===
   useEffect(() => {
     const currentIncomingIds = new Set(
       ctbs.filter(ctb => ctb.location.stack === 'INCOMING').map(ctb => ctb.id)
@@ -131,7 +122,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return;
     }
 
-    // New incoming CTBs
     const newIncoming: string[] = [];
     currentIncomingIds.forEach(id => {
       if (!prevIncomingCtbIdsRef.current.has(id)) {
@@ -151,7 +141,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       setBadgeCount(currentIncomingIds.size);
     }
 
-    // CTBs received (were incoming, now stored)
     const received: string[] = [];
     prevIncomingCtbIdsRef.current.forEach(id => {
       if (!currentIncomingIds.has(id) && ctbs.some(c => c.id === id)) {
@@ -175,14 +164,12 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     prevIncomingCtbIdsRef.current = currentIncomingIds;
   }, [ctbs, notify, router]);
 
-  // === Detect item status changes, relocations, deletions, low stock ===
   useEffect(() => {
     if (initialLoadRef.current) return;
 
     const prevSnapshot = prevItemSnapshotRef.current;
     const currentSnapshot = snapshotItems(inventoryItems);
 
-    // --- Items received (incoming → stock/delivered) ---
     const received: string[] = [];
     currentSnapshot.forEach((curr, id) => {
       const prev = prevSnapshot.get(id);
@@ -200,7 +187,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       );
     }
 
-    // --- Items consumed ---
     const consumed: string[] = [];
     currentSnapshot.forEach((curr, id) => {
       const prev = prevSnapshot.get(id);
@@ -218,7 +204,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       );
     }
 
-    // --- Items marked as waste ---
     const wasted: string[] = [];
     currentSnapshot.forEach((curr, id) => {
       const prev = prevSnapshot.get(id);
@@ -236,7 +221,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       );
     }
 
-    // --- Items relocated (moved between stacks) ---
     const relocated: string[] = [];
     currentSnapshot.forEach((curr, id) => {
       const prev = prevSnapshot.get(id);
@@ -254,7 +238,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       );
     }
 
-    // --- Items deleted ---
     const deleted: string[] = [];
     prevSnapshot.forEach((prev, id) => {
       if (!currentSnapshot.has(id)) {
@@ -271,7 +254,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       );
     }
 
-    // --- Low stock warning for important categories ---
     const importantCategoryNames = new Set(
       categories.filter(cat => cat.isImportant).map(cat => cat.name)
     );
@@ -286,7 +268,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           s => s.category === catName && (s.status === 'stock' || s.status === 'incoming')
         ).length;
 
-        // Only notify when count drops to/below threshold (not on every render)
         if (currentCount <= LOW_STOCK_THRESHOLD && currentCount < prevCount && currentCount > 0) {
           const label = categories.find(c => c.name === catName)?.label ?? catName;
           notify(
@@ -304,7 +285,6 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     prevItemCountRef.current = inventoryItems.length;
   }, [inventoryItems, categories, notify, router]);
 
-  // === Detect expiring items (within 3 days) ===
   useEffect(() => {
     if (initialLoadRef.current) return;
 

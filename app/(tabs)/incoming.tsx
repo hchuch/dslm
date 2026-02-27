@@ -44,7 +44,6 @@ export default function IncomingScreen() {
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea} edges={['top']}>
-        {/* Header */}
         <View style={styles.header}>
           <View>
             <ThemedText type="title" style={styles.headerTitle}>Incoming Logistics</ThemedText>
@@ -163,7 +162,6 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    // inherited from type="title"
   },
   headerSubtitle: {
     fontSize: 14,
@@ -229,7 +227,7 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: Colors.borderLight, // Using borderLight for subtle contrast
+    borderColor: Colors.borderLight,
   },
   nfcBadge: {
     position: 'absolute',
@@ -249,7 +247,7 @@ const styles = StyleSheet.create({
   },
   cardContent: {
     marginBottom: 12,
-    alignItems: 'flex-start', // Ensure default left alignment for text in card
+    alignItems: 'flex-start',
   },
   ctbId: {
     fontSize: 13,
