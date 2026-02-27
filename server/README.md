@@ -1,134 +1,112 @@
 # DSLM Server
 
-Node.js + Prisma + SQLite server for the DSLM (Deep Space Logistics Module) inventory management system.
+Node.js + Prisma + SQLite backend for the DSLM inventory system.
 
 ## Setup
 
-1. Install dependencies:
 ```bash
 cd server
 npm install
-```
-
-2. Generate Prisma client:
-```bash
 npm run db:generate
-```
-
-3. Create database and run migrations:
-```bash
 npm run db:push
-```
-
-4. Seed the database with default data:
-```bash
 npm run db:seed
 ```
 
 ## Running
 
-### Development
 ```bash
-npm run dev
+npm run dev        # development
+npm run build      # production build
+npm start          # production start
 ```
 
-### Production
-```bash
-npm run build
-npm start
-```
+From the repo root (starts server + Expo together):
 
-### Run with Expo App
-From the repo root:
 ```bash
-npm install
 npm run dev:all
 ```
 
-## Database Management
+## Database
 
-- **Generate Prisma Client**: `npm run db:generate`
-- **Push Schema**: `npm run db:push`
-- **Run Migrations**: `npm run db:migrate`
-- **Seed Data**: `npm run db:seed`
-- **Reset Database**: `npm run db:reset`
-- **Open Prisma Studio**: `npm run db:studio`
+| Command | Description |
+|---------|-------------|
+| `npm run db:generate` | Generate Prisma client |
+| `npm run db:push` | Push schema to database |
+| `npm run db:migrate` | Run migrations |
+| `npm run db:seed` | Seed default data |
+| `npm run db:reset` | Reset database |
+| `npm run db:studio` | Open Prisma Studio |
 
-## Default Admin Account
-
-After seeding, the admin account is available:
+## Default Admin
 
 | Username | Password | Role |
 |----------|----------|------|
 | admin | dslm-admin-2025 | admin |
 
-**Important:** Change the admin password after first login. Additional user accounts should be created through the admin panel in the app.
+Change the password after first login. Create additional accounts through the admin panel.
 
 ## API Endpoints
 
-### Health Check
-- `GET /health` - Server health check
-
-### Authentication
-- `POST /api/auth/login` - Login
-- `POST /api/auth/logout` - Logout
-- `GET /api/auth/me` - Get current user
+### Auth
+- `POST /api/auth/login`
+- `POST /api/auth/logout`
+- `GET /api/auth/me`
 
 ### Categories
-- `GET /api/categories` - List all categories
-- `POST /api/categories` - Create custom category
-- `PATCH /api/categories/:id` - Update category
-- `DELETE /api/categories/:id` - Delete custom category
+- `GET /api/categories`
+- `POST /api/categories`
+- `PATCH /api/categories/:id`
+- `DELETE /api/categories/:id`
 
 ### CTBs
-- `GET /api/ctbs` - List all CTBs
-- `GET /api/ctbs/:id` - Get single CTB
-- `POST /api/ctbs` - Create CTB
-- `PATCH /api/ctbs/:id` - Update CTB
-- `DELETE /api/ctbs/:id` - Delete CTB
-- `POST /api/ctbs/:id/receive` - Receive incoming CTB
+- `GET /api/ctbs`
+- `GET /api/ctbs/:id`
+- `POST /api/ctbs`
+- `PATCH /api/ctbs/:id`
+- `DELETE /api/ctbs/:id`
+- `POST /api/ctbs/:id/receive`
 
 ### Items
-- `GET /api/items` - List all items
-- `GET /api/items/:id` - Get single item
-- `POST /api/items` - Create item
-- `PATCH /api/items/:id` - Update item
-- `DELETE /api/items/:id` - Delete item
-- `POST /api/items/:id/deliver` - Mark item delivered
-- `POST /api/items/:id/consume` - Mark item consumed
-- `POST /api/items/:id/relocate` - Relocate item
+- `GET /api/items`
+- `GET /api/items/:id`
+- `POST /api/items`
+- `PATCH /api/items/:id`
+- `DELETE /api/items/:id`
+- `POST /api/items/:id/deliver`
+- `POST /api/items/:id/consume`
+- `POST /api/items/:id/relocate`
 
 ### Shipments
-- `GET /api/shipments` - List all shipments
-- `GET /api/shipments/:id` - Get single shipment
-- `POST /api/shipments` - Create shipment
-- `PATCH /api/shipments/:id` - Update shipment
-- `POST /api/shipments/:id/launch` - Launch shipment
+- `GET /api/shipments`
+- `GET /api/shipments/:id`
+- `POST /api/shipments`
+- `PATCH /api/shipments/:id`
+- `POST /api/shipments/:id/launch`
 
 ### Sync
-- `GET /api/sync/version` - Get current sync version
-- `GET /api/sync/changes?since=<version>` - Get changes since version
-- `GET /api/sync/full` - Full data dump
-- `POST /api/sync/push` - Push local changes
-- `POST /api/sync/ack` - Acknowledge sync version
+- `GET /api/sync/version`
+- `GET /api/sync/changes?since=<version>`
+- `GET /api/sync/full`
+- `POST /api/sync/push`
+- `POST /api/sync/ack`
 
-### Users (Admin Only)
-- `GET /api/users` - List all users
-- `GET /api/users/:id` - Get single user
-- `POST /api/users` - Create user
-- `PATCH /api/users/:id` - Update user
-- `DELETE /api/users/:id` - Delete user
-- `POST /api/users/:id/reset-password` - Reset user password
+### Users (Admin)
+- `GET /api/users`
+- `POST /api/users`
+- `PATCH /api/users/:id`
+- `DELETE /api/users/:id`
+- `POST /api/users/:id/reset-password`
 
-### Legacy (Backward Compatibility)
-- `GET /items` - Legacy items endpoint
+### Other
+- `GET /health` — health check
+- `GET /items` — legacy endpoint
 
-## Environment Variables
+## Environment
 
-Create a `.env` file in the server directory:
+Create `.env` in the server directory:
 
-```env
+```
 DATABASE_URL="file:./dev.db"
-JWT_SECRET="your-secret-key-change-in-production"
+JWT_SECRET="your-secret-key"
 PORT=4000
 ```

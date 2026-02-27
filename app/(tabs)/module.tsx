@@ -13,6 +13,19 @@ import { useDialog } from '../../hooks/use-dialog';
 import { useNFC } from '../../hooks/use-nfc';
 import type { CTB, StackId } from '../../types/dslm';
 
+const formatRelativeTime = (date: Date): string => {
+  const now = Date.now();
+  const diffMs = now - date.getTime();
+  const diffSec = Math.floor(diffMs / 1000);
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffHr = Math.floor(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h ago`;
+  const diffDay = Math.floor(diffHr / 24);
+  return `${diffDay}d ago`;
+};
+
 export default function ModuleScreen() {
   const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById, reorganizeStack, updateStackLayout, outsideCTBs } = useInventory();
   const [selectedStack, setSelectedStack] = useState<StackId | undefined>();
@@ -235,6 +248,11 @@ export default function ModuleScreen() {
                         <ThemedText style={styles.outsideCardMeta}>
                           Size {ctb.size} · From {ctb.previousLocation?.path || '?'}
                         </ThemedText>
+                        {ctb.lastAccessedDate && (
+                          <ThemedText style={styles.outsideCardTimestamp}>
+                            Taken out {formatRelativeTime(ctb.lastAccessedDate)}
+                          </ThemedText>
+                        )}
                       </View>
                       <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
                     </Pressable>
@@ -602,6 +620,11 @@ const styles = StyleSheet.create({
   outsideCardMeta: {
     fontSize: 12,
     color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  outsideCardTimestamp: {
+    fontSize: 11,
+    color: Colors.textTertiary,
     marginTop: 2,
   },
   container: {

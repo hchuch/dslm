@@ -138,7 +138,8 @@ export default function HomeScreen() {
         item.name.toLowerCase().includes(query) ||
         item.description.toLowerCase().includes(query) ||
         item.location.path.toLowerCase().includes(query) ||
-        item.ctbId.toLowerCase().includes(query),
+        item.ctbId.toLowerCase().includes(query) ||
+        item.category.toLowerCase().includes(query),
     );
   }, [
     inventoryItems,
@@ -146,6 +147,17 @@ export default function HomeScreen() {
     activeFilter,
     getExpiringItems,
   ]);
+
+  const filteredCTBs = useMemo(() => {
+    if (!searchQuery) return ctbs;
+    const query = searchQuery.toLowerCase();
+    return ctbs.filter(
+      (ctb) =>
+        ctb.id.toLowerCase().includes(query) ||
+        ctb.location.path.toLowerCase().includes(query) ||
+        ctb.rfidTag?.id?.toLowerCase().includes(query),
+    );
+  }, [ctbs, searchQuery]);
 
   const groupedItems = useMemo(() => {
     const incoming = filteredItems.filter((i) => i.status === "incoming");
@@ -402,24 +414,24 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {activeFilter === "ctbs" && ctbs.length > 0 && (
+          {activeFilter === "ctbs" && filteredCTBs.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
                 <Ionicons name="cube-outline" size={18} color={Colors.blue} />
                 <ThemedText style={styles.sectionTitle}>All CTBs</ThemedText>
                 <View style={styles.badge}>
-                  <Text style={styles.badgeText}>{ctbs.length}</Text>
+                  <Text style={styles.badgeText}>{filteredCTBs.length}</Text>
                 </View>
               </View>
               <View style={styles.list}>
-                {ctbs.slice(0, 10).map(renderCTB)}
-                {ctbs.length > 10 && (
+                {filteredCTBs.slice(0, 10).map(renderCTB)}
+                {filteredCTBs.length > 10 && (
                   <Pressable
                     style={styles.showMore}
                     onPress={() => router.push("/module")}
                   >
                     <ThemedText style={styles.showMoreText}>
-                      View all {ctbs.length} CTBs in Storage →
+                      View all {filteredCTBs.length} CTBs in Storage →
                     </ThemedText>
                   </Pressable>
                 )}
@@ -596,6 +608,19 @@ export default function HomeScreen() {
               </ThemedText>
             </Pressable>
           </View>
+
+          {activeFilter === "ctbs" && searchQuery && filteredCTBs.length === 0 && (
+            <View style={styles.empty}>
+              <Ionicons
+                name="cube-outline"
+                size={48}
+                color={Colors.textTertiary}
+              />
+              <ThemedText style={styles.emptyText}>
+                No CTBs match your search
+              </ThemedText>
+            </View>
+          )}
 
           {activeFilter !== "ctbs" && filteredItems.length === 0 && (
             <View style={styles.empty}>

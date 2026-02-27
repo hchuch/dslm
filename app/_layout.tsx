@@ -12,6 +12,7 @@ import { SyncProvider } from '../contexts/sync-context';
 import { DialogProvider } from '../hooks/use-dialog';
 import { InventoryProvider } from '../hooks/use-inventory';
 import { getApiBaseUrl } from '../services/api-config';
+import { ErrorBoundary } from '../components/error-boundary';
 
 import { Colors } from '@/constants/colors';
 
@@ -37,29 +38,31 @@ export default function RootLayout() {
   useEffect(() => { getApiBaseUrl(); }, []);
 
   return (
-    <AuthProvider>
-      <SyncProvider>
-        <InventoryProvider>
-          <NotificationProvider>
-            <DialogProvider>
-              <ThemeProvider value={DSLMTheme}>
-                <Stack
-                  screenOptions={{
-                    headerShown: false,
-                    animation: Platform.OS === 'ios' ? 'default' : 'fade_from_bottom',
-                    animationDuration: 200,
-                  }}
-                >
-                  <Stack.Screen name="login" options={{ animation: 'fade' }} />
-                  <Stack.Screen name="(tabs)" />
-                  <Stack.Screen name="modal" options={{ presentation: 'modal', headerShown: true, title: 'Modal' }} />
-                </Stack>
-                <StatusBar style="light" />
-              </ThemeProvider>
-            </DialogProvider>
-          </NotificationProvider>
-        </InventoryProvider>
-      </SyncProvider>
-    </AuthProvider>
+    <ErrorBoundary>
+      <AuthProvider>
+        <SyncProvider>
+          <InventoryProvider>
+            <NotificationProvider>
+              <DialogProvider>
+                <ThemeProvider value={DSLMTheme}>
+                  <Stack
+                    screenOptions={{
+                      headerShown: false,
+                      animation: Platform.OS === 'ios' ? 'default' : 'fade_from_bottom',
+                      animationDuration: 200,
+                    }}
+                  >
+                    <Stack.Screen name="login" options={{ animation: 'fade' }} />
+                    <Stack.Screen name="(tabs)" />
+                    <Stack.Screen name="modal" options={{ presentation: 'modal', headerShown: true, title: 'Modal' }} />
+                  </Stack>
+                  <StatusBar style="light" />
+                </ThemeProvider>
+              </DialogProvider>
+            </NotificationProvider>
+          </InventoryProvider>
+        </SyncProvider>
+      </AuthProvider>
+    </ErrorBoundary>
   );
 }

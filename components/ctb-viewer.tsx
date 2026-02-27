@@ -1,4 +1,5 @@
 import { Ionicons } from "@expo/vector-icons";
+import * as Haptics from 'expo-haptics';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Modal,
@@ -82,6 +83,7 @@ export function CTBViewer({
   } | null>(null);
 
   const [showNFCScanner, setShowNFCScanner] = useState(false);
+  const [previousNfcTag, setPreviousNfcTag] = useState<CTB['rfidTag'] | null>(null);
 
   const ctbItems = currentCTB ? getItemsInCTB(currentCTB.id) : [];
   const hasIncomingItems = ctbItems.some((item) => item.status === "incoming");
@@ -258,6 +260,7 @@ export function CTBViewer({
     }
     await relocateCTB(currentCTB.id, newLocation, user?.id);
     setCurrentCTB({ ...currentCTB, location: newLocation, isOutside: false, previousLocation: undefined });
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
   const handleTakeOutCTB = () => {
@@ -310,6 +313,7 @@ export function CTBViewer({
           onPress: async () => {
             await returnCTB(currentCTB.id, user?.id);
             setCurrentCTB({ ...currentCTB, isOutside: false, previousLocation: undefined, location: prevLoc });
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           },
         },
       ],
@@ -320,13 +324,14 @@ export function CTBViewer({
     if (!currentCTB) return;
     showDialog(
       "Remove NFC Tag",
-      `Remove the NFC tag assignment from ${currentCTB.id}?`,
+      `Remove the NFC tag assignment from ${currentCTB.id}? You can restore it afterwards.`,
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Remove",
           style: "destructive",
           onPress: async () => {
+            setPreviousNfcTag(currentCTB.rfidTag);
             const defaultTag = {
               type: "RFID" as const,
               id: `RFID-${currentCTB.id}`,
@@ -334,6 +339,27 @@ export function CTBViewer({
             };
             await updateCTBTag(currentCTB.id, defaultTag);
             setCurrentCTB({ ...currentCTB, rfidTag: defaultTag });
+            Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+          },
+        },
+      ],
+    );
+  };
+
+  const handleRestoreNFCTag = () => {
+    if (!currentCTB || !previousNfcTag) return;
+    showDialog(
+      "Restore NFC Tag",
+      `Restore previous NFC tag (${previousNfcTag.id?.slice(0, 12)}...) to ${currentCTB.id}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Restore",
+          onPress: async () => {
+            await updateCTBTag(currentCTB.id, previousNfcTag);
+            setCurrentCTB({ ...currentCTB, rfidTag: previousNfcTag });
+            setPreviousNfcTag(null);
+            Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
           },
         },
       ],
@@ -376,6 +402,7 @@ export function CTBViewer({
     prevVisibleRef.current = visible;
 
     if (!justOpened) return;
+    setPreviousNfcTag(null);
 
     if (initialItem) {
       const itemCTB = findCTBById(initialItem.ctbId);
@@ -812,6 +839,21 @@ export function CTBViewer({
             <Ionicons name="scan" size={18} color="#000" />
             <ThemedText style={styles.nfcAssignCTAButtonText}>Scan</ThemedText>
           </View>
+        </Pressable>
+      )}
+
+      {previousNfcTag && currentCTB.rfidTag?.id?.startsWith('RFID-') && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.nfcRestoreButton,
+            pressed && { opacity: 0.8 },
+          ]}
+          onPress={handleRestoreNFCTag}
+        >
+          <Ionicons name="arrow-undo" size={16} color={Colors.warning} />
+          <ThemedText style={styles.nfcRestoreText}>
+            Restore previous tag ({previousNfcTag.id?.slice(0, 12)}...)
+          </ThemedText>
         </Pressable>
       )}
 
@@ -1592,6 +1634,23 @@ const styles = StyleSheet.create({
   nfcDeleteButtonText: {
     fontSize: 13,
     color: Colors.error,
+    fontWeight: "600",
+  },
+  nfcRestoreButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: "rgba(255, 214, 10, 0.1)",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "rgba(255, 214, 10, 0.3)",
+    marginBottom: 12,
+  },
+  nfcRestoreText: {
+    fontSize: 13,
+    color: Colors.warning,
     fontWeight: "600",
   },
   moveStackPicker: {

@@ -57,9 +57,7 @@ server/dist/
 .lsp/
 .claude/
 
-# project docs (kept local only)
 AGENT_CONTEXT.md
-README.md
 PDR_Presentation_Outline.md
 requirements.txt
 
