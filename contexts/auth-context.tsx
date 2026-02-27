@@ -25,7 +25,8 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
     const [user, setUser] = useState<User | null>(null);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isCheckingSession, setIsCheckingSession] = useState(true);
+    const [isLoggingIn, setIsLoggingIn] = useState(false);
     const [loginError, setLoginError] = useState<string | null>(null);
     const [isOfflineSession, setIsOfflineSession] = useState(false);
 
@@ -38,45 +39,50 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         try {
             const token = await SecureStore.getItemAsync('authToken');
             if (token) {
-                // Verify token with server
-                const response = await fetch(`${getApiBaseUrlSync()}/api/auth/me`, {
-                    headers: {
-                        Authorization: `Bearer ${token}`,
-                        'Content-Type': 'application/json',
-                    },
-                });
+                // Verify token with server (5s timeout to avoid blocking login screen)
+                const controller = new AbortController();
+                const timeout = setTimeout(() => controller.abort(), 5000);
 
-                if (response.ok) {
-                    const data = await response.json();
-                    setUser(data.user);
-                    setIsOfflineSession(false); // Connected to server
-                } else {
-                    // Token invalid, clear it
-                    await SecureStore.deleteItemAsync('authToken');
+                try {
+                    const response = await fetch(`${getApiBaseUrlSync()}/api/auth/me`, {
+                        headers: {
+                            Authorization: `Bearer ${token}`,
+                            'Content-Type': 'application/json',
+                        },
+                        signal: controller.signal,
+                    });
+                    clearTimeout(timeout);
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        setUser(data.user);
+                        setIsOfflineSession(false);
+                    } else {
+                        await SecureStore.deleteItemAsync('authToken');
+                    }
+                } catch {
+                    clearTimeout(timeout);
+                    throw new Error('Server unreachable');
                 }
             }
         } catch (error) {
             console.log('Session check failed (server may be offline):', error);
-            // If server is offline, try to load cached user data
             try {
-                // First try SecureStore (last logged in user)
                 const cachedUser = await SecureStore.getItemAsync('cachedUser');
                 if (cachedUser) {
                     setUser(JSON.parse(cachedUser));
                     setIsOfflineSession(true);
                 }
-                // Note: We don't auto-login from database here since we need password verification
-                // User must manually login with password to verify offline credentials
             } catch {
-                // No cached user - user will need to login
+                // No cached user
             }
         } finally {
-            setIsLoading(false);
+            setIsCheckingSession(false);
         }
     };
 
     const login = async (username: string, password: string): Promise<boolean> => {
-        setIsLoading(true);
+        setIsLoggingIn(true);
         setLoginError(null);
 
         try {
@@ -92,7 +98,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             if (!response.ok) {
                 setLoginError(data.error || 'Login failed');
-                setIsLoading(false);
+                setIsLoggingIn(false);
                 return false;
             }
 
@@ -112,7 +118,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
             setUser(data.user);
             setIsOfflineSession(false); // Successfully connected to server
-            setIsLoading(false);
+            setIsLoggingIn(false);
             return true;
         } catch (error) {
             // Server is offline, attempt offline login with cached credentials
@@ -132,7 +138,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     await updateUserLastLogin(username);
                     setUser(userData);
                     setIsOfflineSession(true);
-                    setIsLoading(false);
+                    setIsLoggingIn(false);
                     // No error - offline login is expected behavior for astronauts
                     return true;
                 }
@@ -145,7 +151,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
                     if (userData.username === username.toLowerCase()) {
                         setUser(userData);
                         setIsOfflineSession(true);
-                        setIsLoading(false);
+                        setIsLoggingIn(false);
                         return true;
                     }
                 }
@@ -160,7 +166,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             } else {
                 setLoginError('No offline credentials found. Please connect to the server for first login.');
             }
-            setIsLoading(false);
+            setIsLoggingIn(false);
             return false;
         }
     };
@@ -200,7 +206,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         <AuthContext.Provider
             value={{
                 user,
-                isLoading,
+                isLoading: isLoggingIn,
                 isAuthenticated: !!user,
                 isOfflineSession,
                 login,

@@ -37,17 +37,33 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
   const getStackUtilization = (stackId: StackId) => {
     const stack = stacks.find(s => s.stackId === stackId);
     if (!stack) return 0;
-    const ctbsInStack = ctbs.filter(ctb => ctb.location.stack === stackId);
+    const ctbsInStack = ctbs.filter(ctb => ctb.location.stack === stackId && !ctb.isOutside);
     const usedVolume = ctbsInStack.reduce((sum, ctb) => sum + ctb.volume, 0);
     return Math.round((usedVolume / stack.totalVolume) * 100);
   };
 
   const getCTBCountInStack = (stackId: StackId) => {
-    return ctbs.filter(ctb => ctb.location.stack === stackId).length;
+    return ctbs.filter(ctb => ctb.location.stack === stackId && !ctb.isOutside).length;
   };
 
   const getTotalMassInStack = (stackId: StackId) => {
-    return ctbs.filter(ctb => ctb.location.stack === stackId).reduce((sum, ctb) => sum + ctb.mass, 0);
+    return ctbs.filter(ctb => ctb.location.stack === stackId && !ctb.isOutside).reduce((sum, ctb) => sum + ctb.mass, 0);
+  };
+
+  const getOccupiedCells = (stackId: StackId) => {
+    const stackCtbs = ctbs.filter(ctb => ctb.location.stack === stackId && !ctb.isOutside);
+    // Map: "layer-position" → ctb color
+    const occupied = new Map<string, string>();
+    for (const ctb of stackCtbs) {
+      const layer = ctb.location.layer || 1;
+      const pos = ctb.location.position;
+      const slotsNeeded = Math.max(1, Math.ceil(ctb.size));
+      const color = getCTBColor(ctb.size);
+      for (let p = pos; p < pos + slotsNeeded; p++) {
+        occupied.set(`${layer}-${p}`, color);
+      }
+    }
+    return occupied;
   };
 
   const renderStackCard = (stackId: StackId, isFlex: boolean = false) => {
@@ -58,6 +74,7 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
     const isSelected = selectedStack === stackId;
     const positions = stack?.positions || 16;
     const maxLayers = stack?.maxLayers || 4;
+    const occupied = getOccupiedCells(stackId);
 
     return (
       <TouchableOpacity
@@ -80,16 +97,22 @@ export function ModuleVisualization({ stacks, ctbs, onStackPress, selectedStack 
         <View style={styles.gridContainer}>
           {isFlex ? (
             <View style={styles.flexGrid}>
-              {Array.from({ length: 8 }, (_, i) => (
-                <View key={i} style={styles.flexCell} />
-              ))}
+              {Array.from({ length: 8 }, (_, i) => {
+                const cellColor = occupied.get(`1-${i + 1}`);
+                return (
+                  <View key={i} style={[styles.flexCell, cellColor && { backgroundColor: cellColor, borderColor: cellColor }]} />
+                );
+              })}
             </View>
           ) : (
             Array.from({ length: maxLayers }, (_, layerIdx) => (
               <View key={layerIdx} style={styles.gridRow}>
-                {Array.from({ length: positions }, (_, posIdx) => (
-                  <View key={posIdx} style={styles.gridCell} />
-                ))}
+                {Array.from({ length: positions }, (_, posIdx) => {
+                  const cellColor = occupied.get(`${layerIdx + 1}-${posIdx + 1}`);
+                  return (
+                    <View key={posIdx} style={[styles.gridCell, cellColor && { backgroundColor: cellColor, borderColor: cellColor }]} />
+                  );
+                })}
               </View>
             ))
           )}

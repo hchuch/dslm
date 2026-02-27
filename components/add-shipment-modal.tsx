@@ -2,9 +2,13 @@ import { Ionicons } from '@expo/vector-icons';
 import React, { useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 
+import { Colors } from '../constants/colors';
+import { useDialog } from '../hooks/use-dialog';
 import { useInventory } from '../hooks/use-inventory';
+import { useNFC } from '../hooks/use-nfc';
 import type { CTB, CTBSize, InventoryItem, ItemCategory, Location, StackId } from '../types/dslm';
 import { CTB_VOLUME_SPECS } from '../types/dslm';
+import { NFCScannerModal } from './nfc-scanner-modal';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
 
@@ -15,6 +19,10 @@ type Props = {
 
 export function AddShipmentModal({ visible, onClose }: Props) {
     const { addCTB, addItem } = useInventory();
+    const { showDialog } = useDialog();
+    const { isSupported: nfcSupported } = useNFC();
+    const [showNFCScanner, setShowNFCScanner] = useState(false);
+    const [nfcTargetCtbId, setNfcTargetCtbId] = useState<string | null>(null);
 
     // CTB State
     const [ctbId, setCtbId] = useState('');
@@ -59,7 +67,7 @@ export function AddShipmentModal({ visible, onClose }: Props) {
 
     const handleSubmit = () => {
         if (!ctbId) {
-            alert('Please enter a CTB ID');
+            showDialog('Error', 'Please enter a CTB ID');
             return;
         }
 
@@ -113,10 +121,36 @@ export function AddShipmentModal({ visible, onClose }: Props) {
             } as InventoryItem);
         });
 
-        // Reset and close
-        setCtbId('');
-        setItems([]);
-        onClose();
+        // Prompt NFC tag assignment
+        if (nfcSupported) {
+            showDialog(
+                'Assign NFC Tag',
+                `Scan an NFC tag for ${ctbId}?\n\nNFC tags are strongly recommended for tracking CTBs.`,
+                [
+                    {
+                        text: 'Skip',
+                        style: 'cancel',
+                        onPress: () => {
+                            setCtbId('');
+                            setItems([]);
+                            onClose();
+                        },
+                    },
+                    {
+                        text: 'Scan NFC Tag',
+                        onPress: () => {
+                            setNfcTargetCtbId(ctbId);
+                            setShowNFCScanner(true);
+                        },
+                    },
+                ],
+            );
+        } else {
+            // Reset and close
+            setCtbId('');
+            setItems([]);
+            onClose();
+        }
     };
 
     return (
@@ -184,7 +218,7 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                                                     {stack}
                                                 </ThemedText>
                                                 {targetStack === stack && (
-                                                    <Ionicons name="checkmark" size={18} color="#0F6FFF" />
+                                                    <Ionicons name="checkmark" size={18} color="#FFF" />
                                                 )}
                                             </Pressable>
                                         ))}
@@ -224,7 +258,7 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                                                         Position {pos}
                                                     </ThemedText>
                                                     {targetPosition === pos && (
-                                                        <Ionicons name="checkmark" size={18} color="#0F6FFF" />
+                                                        <Ionicons name="checkmark" size={18} color="#FFF" />
                                                     )}
                                                 </Pressable>
                                             ))}
@@ -257,7 +291,7 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                                     placeholderTextColor="#666"
                                 />
                                 <Pressable style={styles.addButton} onPress={handleAddItem}>
-                                    <Ionicons name="add" size={24} color="#FFF" />
+                                    <Ionicons name="add" size={24} color="#000" />
                                 </Pressable>
                             </View>
                         </View>
@@ -282,6 +316,31 @@ export function AddShipmentModal({ visible, onClose }: Props) {
                         <ThemedText style={styles.submitButtonText}>Create Shipment</ThemedText>
                     </Pressable>
                 </View>
+
+                <NFCScannerModal
+                    visible={showNFCScanner}
+                    mode="write"
+                    writeData={nfcTargetCtbId || undefined}
+                    title="Assign NFC Tag"
+                    subtitle={`Hold device near NFC tag to assign it to ${nfcTargetCtbId}`}
+                    onClose={() => {
+                        setShowNFCScanner(false);
+                        setNfcTargetCtbId(null);
+                        setCtbId('');
+                        setItems([]);
+                        onClose();
+                    }}
+                    onWriteSuccess={(result) => {
+                        if (result.success) {
+                            showDialog('Success', `NFC tag assigned to ${nfcTargetCtbId}`);
+                        }
+                        setShowNFCScanner(false);
+                        setNfcTargetCtbId(null);
+                        setCtbId('');
+                        setItems([]);
+                        onClose();
+                    }}
+                />
             </ThemedView>
         </Modal>
     );
@@ -306,7 +365,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     closeButton: {
-        color: '#0F6FFF',
+        color: Colors.textSecondary,
         fontSize: 16,
     },
     content: {
@@ -378,14 +437,14 @@ const styles = StyleSheet.create({
         borderBottomColor: '#2A2B2E',
     },
     pickerItemSelected: {
-        backgroundColor: 'rgba(15, 111, 255, 0.1)',
+        backgroundColor: Colors.blueGlow,
     },
     pickerItemText: {
         color: '#FFF',
         fontSize: 14,
     },
     pickerItemTextSelected: {
-        color: '#0F6FFF',
+        color: Colors.textPrimary,
         fontWeight: '600',
     },
     addItemForm: {
@@ -397,7 +456,7 @@ const styles = StyleSheet.create({
         borderColor: '#2A2B2E',
     },
     addButton: {
-        backgroundColor: '#0F6FFF',
+        backgroundColor: Colors.blue,
         width: 44,
         height: 44,
         borderRadius: 8,
@@ -433,13 +492,13 @@ const styles = StyleSheet.create({
         backgroundColor: '#111214',
     },
     submitButton: {
-        backgroundColor: '#0F6FFF',
+        backgroundColor: Colors.blue,
         padding: 16,
         borderRadius: 12,
         alignItems: 'center',
     },
     submitButtonText: {
-        color: '#FFF',
+        color: '#000',
         fontSize: 16,
         fontWeight: '600',
     },

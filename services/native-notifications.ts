@@ -49,7 +49,7 @@ export async function setupNotifications(): Promise<boolean> {
       await Notifications.setNotificationChannelAsync(channelId, {
         name: config.name,
         importance: Notifications.AndroidImportance.HIGH,
-        sound: config.sound ? 'default' : undefined,
+        sound: config.sound ? 'default' : false,
         vibrationPattern: [0, 250, 250, 250],
       });
     }
@@ -75,7 +75,7 @@ export async function sendLocalNotification(
         title,
         body: body || '',
         data: data || {},
-        sound: CHANNEL_CONFIG[channel].sound ? 'default' : undefined,
+        sound: CHANNEL_CONFIG[channel].sound ? 'default' : false,
         ...(Platform.OS === 'android' ? { channelId: channel } : {}),
       },
       trigger: null, // Send immediately

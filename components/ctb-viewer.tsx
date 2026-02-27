@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -11,9 +10,11 @@ import {
 } from "react-native";
 
 import { Colors } from "../constants/colors";
+import { useDialog, DialogOverlay } from '../hooks/use-dialog';
 import { useAuth } from "../contexts/auth-context";
 import { useInventory, MAX_NESTING_DEPTH } from "../hooks/use-inventory";
 import { useNFC } from "../hooks/use-nfc";
+import { createHistoryEntry, updateCTB as updateCTBInDb } from "../services/local-db";
 import type { CTB, InventoryItem, Location } from "../types/dslm";
 import { ItemNotesModal } from "./item-notes-modal";
 import { NFCScannerModal } from "./nfc-scanner-modal";
@@ -44,15 +45,21 @@ export function CTBViewer({
     getItemsInCTB,
     findCTBById,
     updateItemNotes,
+    updateCTBTag,
     deleteItem,
     deleteCTB,
     receiveCTB,
     consumeItem,
     markAsWaste,
+    relocateCTB,
+    takeOutCTB,
+    returnCTB,
+    ctbs: allCTBs,
   } = useInventory();
 
   const { user } = useAuth();
   const { isSupported: nfcSupported } = useNFC();
+  const { showDialog } = useDialog();
 
   const [currentCTB, setCurrentCTB] = useState<CTB | null>(ctb);
   const [navigationStack, setNavigationStack] = useState<CTB[]>([]);
@@ -62,6 +69,9 @@ export function CTBViewer({
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [showDeleteCTBModal, setShowDeleteCTBModal] = useState(false);
   const [ctbDeletePassword, setCTBDeletePassword] = useState("");
+  const [showMoveCTBModal, setShowMoveCTBModal] = useState(false);
+  const [moveTargetStack, setMoveTargetStack] = useState<string>("S1");
+  const [moveTargetPosition, setMoveTargetPosition] = useState("");
 
   // Undo toast state
   const [showUndoToast, setShowUndoToast] = useState(false);
@@ -95,7 +105,7 @@ export function CTBViewer({
 
   const handleConsumeItem = () => {
     if (!selectedItem) return;
-    Alert.alert(
+    showDialog(
       "Consume Item",
       `Mark "${selectedItem.name}" as consumed? This means it has been fully used.`,
       [
@@ -113,7 +123,7 @@ export function CTBViewer({
 
   const handleMarkAsWaste = () => {
     if (!selectedItem) return;
-    Alert.alert(
+    showDialog(
       "Mark as Waste",
       `Mark "${selectedItem.name}" for waste disposal?\n\nWaste volume: ${((selectedItem.volume * 1.4) * 1000).toFixed(1)}L (1.4x original)`,
       [
@@ -139,7 +149,7 @@ export function CTBViewer({
   const handleDeleteItem = () => {
     if (!selectedItem) return;
 
-    Alert.alert(
+    showDialog(
       "Delete Item",
       `Are you sure you want to delete "${selectedItem.name}"?`,
       [
@@ -209,7 +219,7 @@ export function CTBViewer({
         setShowUndoToast(true);
       }
     } else {
-      Alert.alert(
+      showDialog(
         "Incorrect Password",
         "Please enter the correct password to delete this CTB.",
       );
@@ -234,30 +244,178 @@ export function CTBViewer({
     }
   };
 
-  // Reset state when modal opens with a new CTB or item
-  useEffect(() => {
-    if (visible) {
-      if (initialItem) {
-        // If opening with an item, find its CTB and show item view
-        const itemCTB = findCTBById(initialItem.ctbId);
-        if (itemCTB) {
-          setCurrentCTB(itemCTB);
-          setSelectedItem(initialItem);
-          setViewMode("item");
-        } else if (ctb) {
-          setCurrentCTB(ctb);
-          setSelectedItem(initialItem);
-          setViewMode("item");
-        }
-        setNavigationStack([]);
-      } else if (ctb) {
-        setCurrentCTB(ctb);
-        setNavigationStack([]);
-        setViewMode("ctb");
-        setSelectedItem(null);
+  const handleMoveCTB = () => {
+    if (!currentCTB) return;
+    setMoveTargetStack(currentCTB.location.stack === "INCOMING" ? "S1" : currentCTB.location.stack);
+    setMoveTargetPosition("");
+    setShowMoveCTBModal(true);
+  };
+
+  const confirmMoveCTB = async () => {
+    if (!currentCTB) return;
+    const pos = parseInt(moveTargetPosition, 10);
+    if (!pos || pos < 1 || pos > 16) {
+      showDialog("Invalid Position", "Please enter a position between 1 and 16.");
+      return;
+    }
+    const newLocation: Location = {
+      stack: moveTargetStack as Location["stack"],
+      position: pos,
+      layer: 1,
+      path: `${moveTargetStack}-P${pos}-L1`,
+    };
+    setShowMoveCTBModal(false);
+    // If CTB was outside, clear the outside flag
+    if (currentCTB.isOutside) {
+      await updateCTBInDb(currentCTB.id, { isOutside: false, previousLocation: undefined });
+    }
+    await relocateCTB(currentCTB.id, newLocation, user?.id);
+    setCurrentCTB({ ...currentCTB, location: newLocation, isOutside: false, previousLocation: undefined });
+  };
+
+  const handleTakeOutCTB = () => {
+    if (!currentCTB) return;
+    showDialog(
+      "Take Out CTB",
+      `Remove ${currentCTB.id} from ${currentCTB.location.path}? You can return it later.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Take Out",
+          onPress: async () => {
+            await takeOutCTB(currentCTB.id, user?.id);
+            setCurrentCTB({ ...currentCTB, isOutside: true, previousLocation: currentCTB.location });
+          },
+        },
+      ],
+    );
+  };
+
+  const handleReturnCTB = () => {
+    if (!currentCTB || !currentCTB.previousLocation) return;
+
+    // Check if previous position is occupied
+    const prevLoc = currentCTB.previousLocation;
+    const slotsForCTB = Math.max(1, Math.ceil(currentCTB.size));
+    const isOccupied = allCTBs.some((c) => {
+      if (c.id === currentCTB.id || c.location.stack !== prevLoc.stack || c.isOutside) return false;
+      const cSlots = Math.max(1, Math.ceil(c.size));
+      const cEnd = c.location.position + cSlots - 1;
+      const myEnd = prevLoc.position + slotsForCTB - 1;
+      return c.location.position <= myEnd && cEnd >= prevLoc.position;
+    });
+
+    if (isOccupied) {
+      showDialog(
+        "Position Occupied",
+        `${prevLoc.path} is no longer free. Use Move CTB to place it in a new position.`,
+        [{ text: "OK" }],
+      );
+      return;
+    }
+
+    showDialog(
+      "Return to Stack",
+      `Return ${currentCTB.id} to its original position at ${prevLoc.path}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Return",
+          onPress: async () => {
+            await returnCTB(currentCTB.id, user?.id);
+            setCurrentCTB({ ...currentCTB, isOutside: false, previousLocation: undefined, location: prevLoc });
+          },
+        },
+      ],
+    );
+  };
+
+  const handleDeleteNFCTag = () => {
+    if (!currentCTB) return;
+    showDialog(
+      "Remove NFC Tag",
+      `Remove the NFC tag assignment from ${currentCTB.id}?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove",
+          style: "destructive",
+          onPress: async () => {
+            const defaultTag = {
+              type: "RFID" as const,
+              id: `RFID-${currentCTB.id}`,
+              assignedDate: new Date(),
+            };
+            await updateCTBTag(currentCTB.id, defaultTag);
+            setCurrentCTB({ ...currentCTB, rfidTag: defaultTag });
+          },
+        },
+      ],
+    );
+  };
+
+  // How many slots the current CTB needs
+  const slotsNeeded = currentCTB ? Math.max(1, Math.ceil(currentCTB.size)) : 1;
+
+  // Get ALL occupied slots for target stack (accounting for multi-position CTBs)
+  const occupiedPositions = useMemo(() => {
+    if (!currentCTB) return new Set<number>();
+    const occupied = new Set<number>();
+    const stackCtbs = allCTBs.filter(
+      (c) => c.location.stack === moveTargetStack && c.id !== currentCTB.id,
+    );
+    for (const c of stackCtbs) {
+      const slots = Math.max(1, Math.ceil(c.size));
+      for (let p = c.location.position; p < c.location.position + slots; p++) {
+        occupied.add(p);
       }
     }
-  }, [visible, ctb, initialItem, findCTBById]);
+    return occupied;
+  }, [allCTBs, moveTargetStack, currentCTB]);
+
+  // Check if the CTB can fit starting at a given position
+  const canFitAtPosition = useCallback(
+    (pos: number) => {
+      if (pos + slotsNeeded - 1 > 16) return false;
+      for (let p = pos; p < pos + slotsNeeded; p++) {
+        if (occupiedPositions.has(p)) return false;
+      }
+      return true;
+    },
+    [occupiedPositions, slotsNeeded],
+  );
+
+  // Reset state only when modal first opens (visible transitions false→true).
+  // We intentionally exclude findCTBById from deps — it's a lookup utility
+  // whose identity changes on every context update, which would reset local
+  // state (currentCTB, navigation, etc.) and revert in-flight edits.
+  const prevVisibleRef = useRef(false);
+  useEffect(() => {
+    const justOpened = visible && !prevVisibleRef.current;
+    prevVisibleRef.current = visible;
+
+    if (!justOpened) return;
+
+    if (initialItem) {
+      const itemCTB = findCTBById(initialItem.ctbId);
+      if (itemCTB) {
+        setCurrentCTB(itemCTB);
+        setSelectedItem(initialItem);
+        setViewMode("item");
+      } else if (ctb) {
+        setCurrentCTB(ctb);
+        setSelectedItem(initialItem);
+        setViewMode("item");
+      }
+      setNavigationStack([]);
+    } else if (ctb) {
+      setCurrentCTB(ctb);
+      setNavigationStack([]);
+      setViewMode("ctb");
+      setSelectedItem(null);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [visible, ctb, initialItem]);
 
   if (!currentCTB) return null;
 
@@ -561,7 +719,7 @@ export function CTBViewer({
           )}
 
           {/* Mark as Waste */}
-          {(selectedItem.status === "stock" || selectedItem.status === "delivered" || selectedItem.status === "consumed") && (
+          {(selectedItem.status === "stock" || selectedItem.status === "delivered") && (
             <Pressable
               style={({ pressed }) => [
                 styles.actionButton,
@@ -672,35 +830,61 @@ export function CTBViewer({
         )}
       </View>
 
-      {/* NFC Tag Info */}
-      {currentCTB.rfidTag && (
+      {/* NFC Tag - Prominent CTA when unassigned */}
+      {currentCTB.rfidTag && nfcSupported && (!currentCTB.rfidTag.id || currentCTB.rfidTag.id.startsWith('RFID-')) && (
+        <Pressable
+          style={({ pressed }) => [
+            styles.nfcAssignCTA,
+            pressed && { opacity: 0.8 },
+          ]}
+          onPress={() => setShowNFCScanner(true)}
+        >
+          <View style={styles.nfcAssignCTAIcon}>
+            <Ionicons name="radio-outline" size={28} color={Colors.warning} />
+          </View>
+          <View style={styles.nfcAssignCTAContent}>
+            <ThemedText style={styles.nfcAssignCTATitle}>No NFC Tag Assigned</ThemedText>
+            <ThemedText style={styles.nfcAssignCTASubtitle}>
+              Tap to scan and assign a tag for tracking
+            </ThemedText>
+          </View>
+          <View style={styles.nfcAssignCTAButton}>
+            <Ionicons name="scan" size={18} color="#000" />
+            <ThemedText style={styles.nfcAssignCTAButtonText}>Scan</ThemedText>
+          </View>
+        </Pressable>
+      )}
+
+      {/* NFC Tag Info - compact when assigned */}
+      {currentCTB.rfidTag && currentCTB.rfidTag.id && !currentCTB.rfidTag.id.startsWith('RFID-') && (
         <View style={styles.nfcTagInfo}>
           <View style={styles.nfcTagRow}>
-            <View style={styles.nfcTagIcon}>
-              <Ionicons
-                name="radio-outline"
-                size={18}
-                color={currentCTB.rfidTag.id && !currentCTB.rfidTag.id.startsWith('RFID-') ? Colors.success : Colors.textTertiary}
-              />
+            <View style={[styles.nfcTagIcon, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+              <Ionicons name="radio-outline" size={18} color={Colors.success} />
             </View>
             <View style={styles.nfcTagDetails}>
               <ThemedText style={styles.nfcTagLabel}>NFC Tag</ThemedText>
               <ThemedText style={styles.nfcTagId}>
-                {currentCTB.rfidTag.id && !currentCTB.rfidTag.id.startsWith('RFID-')
-                  ? `Assigned: ${currentCTB.rfidTag.id.slice(0, 12)}...`
-                  : 'Not assigned'}
+                {`Assigned: ${currentCTB.rfidTag.id.slice(0, 12)}...`}
               </ThemedText>
             </View>
             {nfcSupported && (
-              <Pressable
-                style={styles.nfcScanButton}
-                onPress={() => setShowNFCScanner(true)}
-              >
-                <Ionicons name="scan" size={16} color={Colors.blue} />
-                <ThemedText style={styles.nfcScanButtonText}>
-                  {currentCTB.rfidTag.id && !currentCTB.rfidTag.id.startsWith('RFID-') ? 'Reassign' : 'Assign'}
-                </ThemedText>
-              </Pressable>
+              <View style={styles.nfcTagActions}>
+                <Pressable
+                  style={styles.nfcScanButton}
+                  onPress={() => setShowNFCScanner(true)}
+                >
+                  <Ionicons name="scan" size={16} color={Colors.blue} />
+                  <ThemedText style={styles.nfcScanButtonText}>Reassign</ThemedText>
+                </Pressable>
+                <Pressable
+                  style={styles.nfcDeleteButton}
+                  onPress={handleDeleteNFCTag}
+                >
+                  <Ionicons name="close-circle" size={16} color={Colors.error} />
+                  <ThemedText style={styles.nfcDeleteButtonText}>Remove</ThemedText>
+                </Pressable>
+              </View>
             )}
           </View>
         </View>
@@ -718,7 +902,7 @@ export function CTBViewer({
               // Caller handles its own confirmation
               onReceive(currentCTB.id);
             } else {
-              Alert.alert(
+              showDialog(
                 "Receive CTB",
                 `Confirm receipt of ${currentCTB.id}?\n\nThis will move the CTB and its contents to stock.`,
                 [
@@ -727,7 +911,7 @@ export function CTBViewer({
                     text: "Confirm Receipt",
                     onPress: () => {
                       receiveCTB(currentCTB.id);
-                      Alert.alert("Success", `${currentCTB.id} received into inventory`);
+                      showDialog("Success", `${currentCTB.id} received into inventory`);
                     }
                   }
                 ]
@@ -830,12 +1014,81 @@ export function CTBViewer({
       <View style={styles.actionsSection}>
         <ThemedText style={styles.sectionTitle}>CTB Actions</ThemedText>
 
+        {/* Take Out CTB — only when stored in a stack */}
+        {!isIncomingCTB && !currentCTB.isOutside && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionButton,
+              styles.actionButtonWarn,
+              pressed && styles.actionButtonPressed,
+            ]}
+            onPress={handleTakeOutCTB}
+          >
+            <View style={[styles.actionIcon, styles.actionIconWarn]}>
+              <Ionicons name="log-out-outline" size={20} color={Colors.warning} />
+            </View>
+            <View style={styles.actionInfo}>
+              <ThemedText style={styles.actionTitleWarn}>Take Out</ThemedText>
+              <ThemedText style={styles.actionSubtitle}>
+                Remove from stack for access
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+          </Pressable>
+        )}
+
+        {/* Return to Stack — only when CTB is outside */}
+        {currentCTB.isOutside && currentCTB.previousLocation && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionButton,
+              pressed && styles.actionButtonPressed,
+            ]}
+            onPress={handleReturnCTB}
+          >
+            <View style={styles.actionIcon}>
+              <Ionicons name="log-in-outline" size={20} color={Colors.blue} />
+            </View>
+            <View style={styles.actionInfo}>
+              <ThemedText style={styles.actionTitle}>Return to Stack</ThemedText>
+              <ThemedText style={styles.actionSubtitle}>
+                Restore to {currentCTB.previousLocation.path}
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+          </Pressable>
+        )}
+
+        {/* Move CTB */}
+        {!isIncomingCTB && (
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionButton,
+              pressed && styles.actionButtonPressed,
+              styles.actionButtonSpaced,
+            ]}
+            onPress={handleMoveCTB}
+          >
+            <View style={styles.actionIcon}>
+              <Ionicons name="swap-horizontal" size={20} color={Colors.blue} />
+            </View>
+            <View style={styles.actionInfo}>
+              <ThemedText style={styles.actionTitle}>Move CTB</ThemedText>
+              <ThemedText style={styles.actionSubtitle}>
+                {currentCTB.isOutside ? "Place in a stack position" : "Relocate to a different stack position"}
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+          </Pressable>
+        )}
+
         {/* Delete CTB */}
         <Pressable
           style={({ pressed }) => [
             styles.actionButton,
             styles.actionButtonDanger,
             pressed && styles.actionButtonPressed,
+            styles.actionButtonSpaced,
           ]}
           onPress={handleDeleteCTB}
         >
@@ -981,6 +1234,120 @@ export function CTBViewer({
           </Pressable>
         </Modal>
 
+        {/* Move CTB Modal */}
+        <Modal
+          visible={showMoveCTBModal}
+          animationType="fade"
+          transparent
+          onRequestClose={() => setShowMoveCTBModal(false)}
+        >
+          <Pressable
+            style={styles.deleteModalOverlay}
+            onPress={() => setShowMoveCTBModal(false)}
+          >
+            <Pressable style={styles.deleteModalContent} onPress={() => {}}>
+              <View style={[styles.deleteModalIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+                <Ionicons name="swap-horizontal" size={32} color={Colors.blue} />
+              </View>
+              <ThemedText style={styles.deleteModalTitle}>
+                Move CTB
+              </ThemedText>
+              <ThemedText style={styles.deleteModalMessage}>
+                Select a destination stack and position for {currentCTB?.id}.
+              </ThemedText>
+
+              {/* Stack Picker */}
+              <View style={styles.moveStackPicker}>
+                {(["S1", "S2", "S3", "C1", "C2"] as const).map((stackId) => (
+                  <Pressable
+                    key={stackId}
+                    style={[
+                      styles.moveStackButton,
+                      moveTargetStack === stackId && styles.moveStackButtonActive,
+                    ]}
+                    onPress={() => {
+                      setMoveTargetStack(stackId);
+                      setMoveTargetPosition("");
+                    }}
+                  >
+                    <ThemedText
+                      style={[
+                        styles.moveStackButtonText,
+                        moveTargetStack === stackId && styles.moveStackButtonTextActive,
+                      ]}
+                    >
+                      {stackId}
+                    </ThemedText>
+                  </Pressable>
+                ))}
+              </View>
+
+              {/* Position Picker */}
+              <ThemedText style={styles.movePositionLabel}>
+                {slotsNeeded > 1
+                  ? `Starting position (needs ${slotsNeeded} consecutive slots)`
+                  : "Position (1–16)"}
+              </ThemedText>
+              <View style={styles.movePositionGrid}>
+                {Array.from({ length: 16 }, (_, i) => i + 1).map((pos) => {
+                  const isOccupied = occupiedPositions.has(pos);
+                  const canFit = canFitAtPosition(pos);
+                  const selectedPos = moveTargetPosition ? parseInt(moveTargetPosition, 10) : 0;
+                  const isInSpan = selectedPos > 0 && pos >= selectedPos && pos < selectedPos + slotsNeeded;
+                  const isDisabled = isOccupied || !canFit;
+                  return (
+                    <Pressable
+                      key={pos}
+                      style={[
+                        styles.movePositionButton,
+                        isOccupied && styles.movePositionOccupied,
+                        !isOccupied && !canFit && styles.movePositionCantFit,
+                        isInSpan && styles.movePositionSelected,
+                      ]}
+                      onPress={() => !isDisabled && setMoveTargetPosition(String(pos))}
+                      disabled={isDisabled}
+                    >
+                      <ThemedText
+                        style={[
+                          styles.movePositionText,
+                          isDisabled && styles.movePositionTextOccupied,
+                          isInSpan && styles.movePositionTextSelected,
+                        ]}
+                      >
+                        {pos}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <View style={styles.deleteModalButtons}>
+                <Pressable
+                  style={[styles.deleteModalButton, styles.deleteModalButtonCancel]}
+                  onPress={() => setShowMoveCTBModal(false)}
+                >
+                  <ThemedText style={styles.deleteModalButtonTextCancel}>
+                    Cancel
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.deleteModalButton,
+                    { backgroundColor: Colors.blue },
+                    !moveTargetPosition && { opacity: 0.5 },
+                  ]}
+                  onPress={confirmMoveCTB}
+                  disabled={!moveTargetPosition}
+                >
+                  <ThemedText style={[styles.deleteModalButtonTextConfirm, { color: '#000' }]}>
+                    Move
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+
         {/* NFC Scanner Modal for assigning tags */}
         <NFCScannerModal
           visible={showNFCScanner}
@@ -989,13 +1356,37 @@ export function CTBViewer({
           title="Assign NFC Tag"
           subtitle={`Hold device near NFC tag to assign it to ${currentCTB?.id}`}
           onClose={() => setShowNFCScanner(false)}
-          onWriteSuccess={(result) => {
-            if (result.success) {
-              Alert.alert('Success', `NFC tag assigned to ${currentCTB?.id}`);
+          onWriteSuccess={async (result) => {
+            if (result.success && currentCTB) {
+              // Update the CTB's rfidTag with the real NFC tag ID
+              const newTag = {
+                type: "RFID" as const,
+                id: result.tagId || `NFC-${Date.now()}`,
+                assignedDate: new Date(),
+              };
+              await updateCTBTag(currentCTB.id, newTag);
+              setCurrentCTB({ ...currentCTB, rfidTag: newTag });
+
+              // Log NFC assignment as history entry on items in this CTB
+              const ctbItemsForLog = getItemsInCTB(currentCTB.id);
+              for (const item of ctbItemsForLog) {
+                const entry = {
+                  timestamp: new Date(),
+                  action: "nfc-assigned" as const,
+                  userId: user?.id,
+                  notes: `NFC tag assigned to CTB ${currentCTB.id}`,
+                };
+                await createHistoryEntry(item.id, entry);
+              }
+              showDialog('Success', `NFC tag assigned to ${currentCTB.id}`);
             }
             setShowNFCScanner(false);
           }}
         />
+
+        {/* Dialog overlay — renders inside this Modal so dialogs
+            appear above modal content instead of behind it */}
+        <DialogOverlay />
 
         {/* Undo Toast */}
         <UndoToast
@@ -1151,7 +1542,55 @@ const styles = StyleSheet.create({
     color: Colors.textTertiary,
     marginTop: 2,
   },
-  // NFC Tag Info
+  // NFC Assign CTA (prominent, unassigned)
+  nfcAssignCTA: {
+    backgroundColor: "rgba(234, 179, 8, 0.12)",
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1.5,
+    borderColor: "rgba(234, 179, 8, 0.4)",
+    borderStyle: "dashed",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  nfcAssignCTAIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: "rgba(234, 179, 8, 0.2)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  nfcAssignCTAContent: {
+    flex: 1,
+  },
+  nfcAssignCTATitle: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.warning,
+    marginBottom: 2,
+  },
+  nfcAssignCTASubtitle: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  nfcAssignCTAButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: Colors.warning,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  nfcAssignCTAButtonText: {
+    fontSize: 14,
+    fontWeight: "700",
+    color: "#000",
+  },
+  // NFC Tag Info (assigned, compact)
   nfcTagInfo: {
     backgroundColor: Colors.surface,
     borderRadius: 12,
@@ -1201,6 +1640,103 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.blue,
     fontWeight: "600",
+  },
+  // NFC tag actions row
+  nfcTagActions: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  nfcDeleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    backgroundColor: "rgba(239, 68, 68, 0.1)",
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "rgba(239, 68, 68, 0.3)",
+  },
+  nfcDeleteButtonText: {
+    fontSize: 13,
+    color: Colors.error,
+    fontWeight: "600",
+  },
+  // Move CTB modal styles
+  moveStackPicker: {
+    flexDirection: "row",
+    gap: 8,
+    marginBottom: 16,
+    width: "100%",
+    justifyContent: "center",
+  },
+  moveStackButton: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  moveStackButtonActive: {
+    backgroundColor: Colors.blue,
+    borderColor: Colors.blue,
+  },
+  moveStackButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.textSecondary,
+  },
+  moveStackButtonTextActive: {
+    color: "#000",
+  },
+  movePositionLabel: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+    marginBottom: 8,
+    textAlign: "center",
+  },
+  movePositionGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    justifyContent: "center",
+    marginBottom: 20,
+    width: "100%",
+  },
+  movePositionButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  movePositionOccupied: {
+    backgroundColor: "rgba(107, 114, 128, 0.15)",
+    borderColor: "rgba(107, 114, 128, 0.3)",
+  },
+  movePositionCantFit: {
+    backgroundColor: "rgba(107, 114, 128, 0.08)",
+    borderColor: "rgba(107, 114, 128, 0.15)",
+    borderStyle: "dashed" as const,
+  },
+  movePositionSelected: {
+    backgroundColor: Colors.blue,
+    borderColor: Colors.blue,
+  },
+  movePositionText: {
+    fontSize: 14,
+    fontWeight: "600",
+    color: Colors.textPrimary,
+  },
+  movePositionTextOccupied: {
+    color: Colors.textTertiary,
+  },
+  movePositionTextSelected: {
+    color: "#000",
   },
   // Receive button
   receiveButton: {

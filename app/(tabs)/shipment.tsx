@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useCallback, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import AddItemModal from '../../components/add-item-modal';
@@ -8,6 +8,7 @@ import { NFCScannerModal } from '../../components/nfc-scanner-modal';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/colors';
+import { useDialog } from '../../hooks/use-dialog';
 import { useInventory } from '../../hooks/use-inventory';
 import { useNFC } from '../../hooks/use-nfc';
 import type { CTB, CTBSize, InventoryItem, ItemCategory } from '../../types/dslm';
@@ -47,9 +48,10 @@ type ShipmentView = 'dashboard' | 'builder';
 type BuilderTab = 'details' | 'cargo';
 
 export default function ShipmentScreen() {
-    const { addShipment, ctbs: existingCtbs } = useInventory();
+    const { addShipment, ctbs: existingCtbs, shipments } = useInventory();
     const { isSupported: nfcSupported } = useNFC();
     const insets = useSafeAreaInsets();
+    const { showDialog } = useDialog();
     const [view, setView] = useState<ShipmentView>('dashboard');
     const [builderTab, setBuilderTab] = useState<BuilderTab>('details');
 
@@ -154,23 +156,23 @@ export default function ShipmentScreen() {
 
     const handleAddCtb = () => {
         if (!selectedCategory) {
-            Alert.alert('Error', 'Please select a category');
+            showDialog('Error', 'Please select a category');
             return;
         }
         if (!newCtbId) {
-            Alert.alert('Error', 'Please enter a CTB ID');
+            showDialog('Error', 'Please enter a CTB ID');
             return;
         }
 
         const ctbId = `CTB-${newCtbId.toUpperCase()}`;
         // Check for duplicate ID in manifest
         if (manifestCtbs.some(c => c.id === ctbId)) {
-            Alert.alert('Error', 'CTB ID already exists in this manifest');
+            showDialog('Error', 'CTB ID already exists in this manifest');
             return;
         }
         // Check for duplicate ID in existing inventory
         if (existingCtbs.some(c => c.id === ctbId)) {
-            Alert.alert('Error', 'CTB ID already exists in inventory');
+            showDialog('Error', 'CTB ID already exists in inventory');
             return;
         }
 
@@ -206,6 +208,24 @@ export default function ShipmentScreen() {
         setIsCreatingCtb(false);
         // Auto-select the new CTB to encourage packing
         setSelectedCtbId(ctbId);
+
+        // Prompt NFC tag assignment
+        if (nfcSupported) {
+            showDialog(
+                'Assign NFC Tag',
+                `Scan an NFC tag for ${ctbId}?\n\nNFC tags are strongly recommended for tracking CTBs.`,
+                [
+                    { text: 'Skip', style: 'cancel' },
+                    {
+                        text: 'Scan NFC Tag',
+                        onPress: () => {
+                            setNFCAssignTarget(ctbId);
+                            setShowNFCScanner(true);
+                        },
+                    },
+                ],
+            );
+        }
     };
 
     const handleAddItem = (item: InventoryItem) => {
@@ -257,7 +277,7 @@ export default function ShipmentScreen() {
 
     // Delete a CTB from manifest
     const deleteCtb = (ctbId: string) => {
-        Alert.alert(
+        showDialog(
             'Remove CTB',
             'Are you sure you want to remove this CTB and all its items from the manifest?',
             [
@@ -346,7 +366,7 @@ export default function ShipmentScreen() {
                 }
                 return ctb;
             }));
-            Alert.alert('Success', `NFC tag assigned to ${nfcAssignTarget}`);
+            showDialog('Success', `NFC tag assigned to ${nfcAssignTarget}`);
         }
         setShowNFCScanner(false);
         setNFCAssignTarget(null);
@@ -357,7 +377,7 @@ export default function ShipmentScreen() {
         const item = manifestItems.find(i => i.id === itemId);
         if (!item) return;
 
-        Alert.alert(
+        showDialog(
             'Remove Item',
             `Remove "${item.name}" from the manifest?`,
             [
@@ -387,27 +407,25 @@ export default function ShipmentScreen() {
 
     const submitShipment = () => {
         if (!destination.trim()) {
-            Alert.alert('Validation Error', 'Please enter a destination for this shipment.');
+            showDialog('Validation Error', 'Please enter a destination for this shipment.');
             return;
         }
 
         if (manifestCtbs.length === 0) {
-            Alert.alert('Empty Manifest', 'Cannot send an empty shipment. Please add at least one CTB.');
+            showDialog('Empty Manifest', 'Cannot send an empty shipment. Please add at least one CTB.');
             return;
         }
 
-        Alert.alert(
+        showDialog(
             'Confirm Launch',
-            `Ready to launch ${manifestId}?\n\n📍 To: ${destination}\n🚀 Priority: ${priority}\n📦 Content: ${manifestCtbs.length} CTBs, ${manifestItems.length} Items\n⚖️ Total Mass: ${totalMass.toFixed(1)}kg`,
+            `Ready to launch ${manifestId}?\n\nTo: ${destination}\nPriority: ${priority}\nContent: ${manifestCtbs.length} CTBs, ${manifestItems.length} Items\nTotal Mass: ${totalMass.toFixed(1)}kg`,
             [
                 { text: 'Cancel', style: 'cancel' },
                 {
                     text: 'Launch Shipment',
                     onPress: () => {
-                        // In a real app, we'd pass priority/destination/notes to addShipment
-                        // For now, we assume addShipment handles the logic or we adapt it later.
-                        addShipment(manifestCtbs, manifestItems);
-                        Alert.alert('Launch Initiated', `Shipment ${manifestId} has departed for ${destination}.`);
+                        addShipment(manifestCtbs, manifestItems, { manifestId, destination, priority, notes });
+                        showDialog('Launch Initiated', `Shipment ${manifestId} has departed for ${destination}.`);
                         setView('dashboard');
                         setManifestCtbs([]);
                         setManifestItems([]);
@@ -435,17 +453,53 @@ export default function ShipmentScreen() {
                 </View>
                 <Pressable style={styles.primaryButton} onPress={startNewShipment}>
                     <ThemedText style={styles.primaryButtonText}>Create New Manifest</ThemedText>
-                    <Ionicons name="arrow-forward" size={20} color="#FFF" />
+                    <Ionicons name="arrow-forward" size={20} color="#000" />
                 </Pressable>
             </View>
 
-            {/* Recent Activity / Drafts Placeholder */}
+            {/* Recent Manifests */}
             <View style={styles.sectionHeader}>
                 <ThemedText style={styles.sectionTitle}>Recent Manifests</ThemedText>
             </View>
-            <View style={styles.emptyRecent}>
-                <ThemedText style={styles.emptyRecentText}>No recent shipments dispatched.</ThemedText>
-            </View>
+            {shipments.length === 0 ? (
+                <View style={styles.emptyRecent}>
+                    <ThemedText style={styles.emptyRecentText}>No recent shipments dispatched.</ThemedText>
+                </View>
+            ) : (
+                <View style={{ paddingHorizontal: 16, gap: 10 }}>
+                    {shipments.slice(0, 10).map((shipment) => (
+                        <View key={shipment.id} style={styles.shipmentCard}>
+                            <View style={styles.shipmentCardHeader}>
+                                <ThemedText style={styles.shipmentManifestId}>{shipment.manifestId}</ThemedText>
+                                <View style={[
+                                    styles.shipmentPriorityBadge,
+                                    shipment.priority === 'High' && { backgroundColor: 'rgba(239,68,68,0.2)', borderColor: Colors.red },
+                                    shipment.priority === 'Low' && { backgroundColor: 'rgba(150,150,150,0.15)', borderColor: '#666' },
+                                ]}>
+                                    <ThemedText style={[
+                                        styles.shipmentPriorityText,
+                                        shipment.priority === 'High' && { color: Colors.red },
+                                        shipment.priority === 'Low' && { color: '#888' },
+                                    ]}>{shipment.priority}</ThemedText>
+                                </View>
+                            </View>
+                            <ThemedText style={styles.shipmentDestination}>{shipment.destination}</ThemedText>
+                            <View style={styles.shipmentStats}>
+                                <ThemedText style={styles.shipmentStat}>{shipment.ctbIds.length} CTBs</ThemedText>
+                                <ThemedText style={styles.shipmentStatDot}> · </ThemedText>
+                                <ThemedText style={styles.shipmentStat}>{shipment.itemCount} Items</ThemedText>
+                                <ThemedText style={styles.shipmentStatDot}> · </ThemedText>
+                                <ThemedText style={styles.shipmentStat}>{shipment.totalMass.toFixed(1)}kg</ThemedText>
+                            </View>
+                            {shipment.launchedAt && (
+                                <ThemedText style={styles.shipmentDate}>
+                                    Launched {shipment.launchedAt.toLocaleDateString()}
+                                </ThemedText>
+                            )}
+                        </View>
+                    ))}
+                </View>
+            )}
         </ScrollView>
     );
 
@@ -575,7 +629,7 @@ export default function ShipmentScreen() {
                                         >
                                             <View style={styles.ctbIconInfo}>
                                                 <View style={[styles.ctbIcon, isSelected && styles.ctbIconSelected]}>
-                                                    <Ionicons name="cube" size={24} color={isSelected ? '#FFF' : Colors.blue} />
+                                                    <Ionicons name="cube" size={24} color={isSelected ? '#000' : Colors.blue} />
                                                 </View>
                                                 <View>
                                                     <ThemedText style={styles.ctbId}>{ctb.id}</ThemedText>
@@ -902,7 +956,7 @@ export default function ShipmentScreen() {
                         <Pressable
                             style={styles.footerButtonSecondary}
                             onPress={() => {
-                                Alert.alert('Discard Manifest?', 'All progress will be lost.', [
+                                showDialog('Discard Manifest?', 'All progress will be lost.', [
                                     { text: 'Keep Editing', style: 'cancel' },
                                     { text: 'Discard', style: 'destructive', onPress: () => setView('dashboard') }
                                 ]);
@@ -914,11 +968,11 @@ export default function ShipmentScreen() {
                             style={[styles.footerButtonPrimary, !destination.trim() && styles.disabledBtn]}
                             onPress={() => {
                                 if (destination.trim()) setBuilderTab('cargo');
-                                else Alert.alert('Required', 'Please enter a destination.');
+                                else showDialog('Required', 'Please enter a destination.');
                             }}
                         >
                             <ThemedText style={styles.primaryBtnText}>Next: Cargo</ThemedText>
-                            <Ionicons name="arrow-forward" size={18} color="#FFF" />
+                            <Ionicons name="arrow-forward" size={18} color="#000" />
                         </Pressable>
                     </>
                 ) : (
@@ -935,7 +989,7 @@ export default function ShipmentScreen() {
                             disabled={manifestCtbs.length === 0}
                         >
                             <ThemedText style={styles.primaryBtnText}>Send Shipment</ThemedText>
-                            <Ionicons name="paper-plane" size={18} color="#FFF" />
+                            <Ionicons name="paper-plane" size={18} color="#000" />
                         </Pressable>
                     </>
                 )}
@@ -1046,7 +1100,7 @@ const styles = StyleSheet.create({
         gap: 12,
     },
     primaryButtonText: {
-        color: '#FFF',
+        color: '#000',
         fontSize: 16,
         fontWeight: '600',
     },
@@ -1072,6 +1126,60 @@ const styles = StyleSheet.create({
     },
     emptyRecentText: {
         color: '#444',
+    },
+    shipmentCard: {
+        backgroundColor: Colors.surface,
+        borderRadius: 12,
+        padding: 16,
+        borderWidth: 1,
+        borderColor: Colors.border,
+    },
+    shipmentCardHeader: {
+        flexDirection: 'row',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        marginBottom: 4,
+    },
+    shipmentManifestId: {
+        fontSize: 15,
+        fontWeight: '700',
+        color: Colors.blue,
+        fontVariant: ['tabular-nums'],
+    },
+    shipmentPriorityBadge: {
+        paddingHorizontal: 8,
+        paddingVertical: 3,
+        borderRadius: 6,
+        backgroundColor: 'rgba(15,111,255,0.15)',
+        borderWidth: 1,
+        borderColor: Colors.blue,
+    },
+    shipmentPriorityText: {
+        fontSize: 11,
+        fontWeight: '600',
+        color: Colors.blue,
+    },
+    shipmentDestination: {
+        fontSize: 14,
+        color: '#CCC',
+        marginBottom: 8,
+    },
+    shipmentStats: {
+        flexDirection: 'row',
+        alignItems: 'center',
+    },
+    shipmentStat: {
+        fontSize: 12,
+        color: '#888',
+    },
+    shipmentStatDot: {
+        fontSize: 12,
+        color: '#444',
+    },
+    shipmentDate: {
+        fontSize: 11,
+        color: '#555',
+        marginTop: 6,
     },
 
     // Builder Styles
@@ -1318,7 +1426,7 @@ const styles = StyleSheet.create({
         fontWeight: '600',
     },
     sizeOptionTextSelected: {
-        color: '#FFF',
+        color: '#000',
     },
     formActions: {
         flexDirection: 'row',
@@ -1342,7 +1450,7 @@ const styles = StyleSheet.create({
         backgroundColor: Colors.blue,
     },
     confirmText: {
-        color: '#FFF',
+        color: '#000',
         fontWeight: '600',
     },
 
@@ -1380,7 +1488,7 @@ const styles = StyleSheet.create({
         borderRadius: 12,
     },
     primaryBtnText: {
-        color: Colors.textPrimary,
+        color: '#000',
         fontWeight: '600',
         fontSize: 16,
     },
@@ -1637,7 +1745,7 @@ const styles = StyleSheet.create({
         alignItems: 'center',
     },
     editSaveText: {
-        color: '#FFF',
+        color: '#000',
         fontWeight: '600',
     },
     sizeRowSmall: {

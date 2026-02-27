@@ -79,6 +79,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     const isAppActive = appStateRef.current === 'active';
 
     if (isAppActive) {
+      // App is in foreground — show in-app banner only, no native notification
       const notification: Notification = {
         id: `${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
         type,
@@ -87,14 +88,15 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         onPress,
       };
       setQueue(prev => [...prev, notification]);
+    } else {
+      // App is in background — send native notification
+      sendLocalNotification(
+        TYPE_TO_CHANNEL[type],
+        title,
+        message,
+        route ? { route } : undefined,
+      );
     }
-
-    sendLocalNotification(
-      TYPE_TO_CHANNEL[type],
-      title,
-      message,
-      route ? { route } : undefined,
-    );
   }, []);
 
   // Show next notification from queue when current is dismissed
@@ -115,7 +117,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
     return unsubscribe;
   }, []);
 
-  // === Detect new incoming CTBs ===
+  // === Detect new incoming CTBs and received CTBs ===
   useEffect(() => {
     const currentIncomingIds = new Set(
       ctbs.filter(ctb => ctb.location.stack === 'INCOMING').map(ctb => ctb.id)
@@ -129,6 +131,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       return;
     }
 
+    // New incoming CTBs
     const newIncoming: string[] = [];
     currentIncomingIds.forEach(id => {
       if (!prevIncomingCtbIdsRef.current.has(id)) {
@@ -144,6 +147,27 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
         count === 1 ? `CTB ${newIncoming[0]}` : `${count} CTBs en route to Gateway`,
         () => router.push('/(tabs)/incoming'),
         '/(tabs)/incoming',
+      );
+      setBadgeCount(currentIncomingIds.size);
+    }
+
+    // CTBs received (were incoming, now stored)
+    const received: string[] = [];
+    prevIncomingCtbIdsRef.current.forEach(id => {
+      if (!currentIncomingIds.has(id) && ctbs.some(c => c.id === id)) {
+        received.push(id);
+      }
+    });
+
+    if (received.length > 0) {
+      const count = received.length;
+      const ctb = ctbs.find(c => c.id === received[0]);
+      notify(
+        'success',
+        count === 1 ? 'CTB received' : `${count} CTBs received`,
+        count === 1 ? `${received[0]} stored at ${ctb?.location.path ?? 'storage'}` : `${count} CTBs moved to storage`,
+        () => router.push('/(tabs)'),
+        '/(tabs)',
       );
       setBadgeCount(currentIncomingIds.size);
     }

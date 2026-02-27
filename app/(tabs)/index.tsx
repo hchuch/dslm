@@ -3,7 +3,6 @@ import { Image } from "expo-image";
 import { useRouter } from "expo-router";
 import React, { useMemo, useState } from "react";
 import {
-  Alert,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -19,6 +18,7 @@ import { ThemedText } from "../../components/themed-text";
 import { ThemedView } from "../../components/themed-view";
 import { Colors } from "../../constants/colors";
 import { useAuth } from "../../contexts/auth-context";
+import { useDialog } from '../../hooks/use-dialog';
 import { useInventory } from "../../hooks/use-inventory";
 import { useNFC, ScannedTag } from "../../hooks/use-nfc";
 import type { CTB, InventoryItem } from "../../types/dslm";
@@ -28,7 +28,6 @@ export default function HomeScreen() {
     inventoryItems,
     ctbs,
     wasteItems,
-    getImportantItems,
     getExpiringItems,
     getIncomingCTBs,
     getWasteVolume,
@@ -43,10 +42,11 @@ export default function HomeScreen() {
   const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
   const [activeFilter, setActiveFilter] = useState<
     "all" | "ctbs" | "important" | "expiring"
-  >("all");
+  >("ctbs");
 
   // NFC Scanner Modal state
   const [showNFCScanner, setShowNFCScanner] = useState(false);
+  const { showDialog } = useDialog();
 
   // Handle NFC scan result - find and open matching CTB/Item
   const handleNFCScanSuccess = (tag: ScannedTag) => {
@@ -89,7 +89,7 @@ export default function HomeScreen() {
     }
 
     // No match found - show alert
-    Alert.alert(
+    showDialog(
       "Tag Not Found",
       `No CTB or item found matching tag: ${tagId}`,
       [
@@ -105,7 +105,7 @@ export default function HomeScreen() {
   };
 
   const handleLogout = () => {
-    Alert.alert("Logout", "Are you sure?", [
+    showDialog("Logout", "Are you sure?", [
       { text: "Cancel", style: "cancel" },
       {
         text: "Logout",
@@ -129,16 +129,15 @@ export default function HomeScreen() {
     () => ({
       totalItems: inventoryItems.length,
       totalCTBs: ctbs.length,
-      importantItems: getImportantItems().length,
+      incomingCTBCount: incomingCTBs.length,
       expiringItems: getExpiringItems(30).length,
     }),
-    [inventoryItems, ctbs, getImportantItems, getExpiringItems],
+    [inventoryItems, ctbs, incomingCTBs, getExpiringItems],
   );
 
   const filteredItems = useMemo(() => {
     let items = inventoryItems;
-    if (activeFilter === "important") items = getImportantItems();
-    else if (activeFilter === "expiring") items = getExpiringItems(30);
+    if (activeFilter === "expiring") items = getExpiringItems(30);
 
     if (!searchQuery) return items;
     const query = searchQuery.toLowerCase();
@@ -153,7 +152,6 @@ export default function HomeScreen() {
     inventoryItems,
     searchQuery,
     activeFilter,
-    getImportantItems,
     getExpiringItems,
   ]);
 
@@ -193,7 +191,7 @@ export default function HomeScreen() {
         <View style={styles.itemInfo}>
           <View style={styles.itemNameRow}>
             <ThemedText numberOfLines={1} style={styles.itemName}>
-              CTB-{ctb.size} · {ctb.id.slice(-6).toUpperCase()}
+              {ctb.id}
             </ThemedText>
             {hasNFCTag && (
               <View style={styles.nfcBadge}>
@@ -344,23 +342,19 @@ export default function HomeScreen() {
             <Pressable
               style={[
                 styles.statChip,
-                activeFilter === "important" && styles.statChipActive,
+                stats.incomingCTBCount > 0 && styles.incomingStatChip,
               ]}
-              onPress={() =>
-                setActiveFilter(
-                  activeFilter === "important" ? "all" : "important",
-                )
-              }
+              onPress={() => router.push("/incoming")}
             >
               <ThemedText
                 style={[
                   styles.statNum,
-                  stats.importantItems > 0 && { color: Colors.warning },
+                  stats.incomingCTBCount > 0 && { color: Colors.warning },
                 ]}
               >
-                {stats.importantItems}
+                {stats.incomingCTBCount}
               </ThemedText>
-              <ThemedText style={styles.statLabel}>Important</ThemedText>
+              <ThemedText style={styles.statLabel}>Incoming</ThemedText>
             </Pressable>
             <Pressable
               style={[
@@ -659,7 +653,7 @@ export default function HomeScreen() {
             ]}
             onPress={() => setShowNFCScanner(true)}
           >
-            <Ionicons name="radio-outline" size={28} color="#FFFFFF" />
+            <Ionicons name="radio-outline" size={28} color="#000" />
             <Text style={styles.fabText}>Scan</Text>
           </Pressable>
         )}
@@ -751,6 +745,11 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.blueGlow,
     borderWidth: 1,
     borderColor: Colors.blue,
+  },
+  incomingStatChip: {
+    backgroundColor: 'rgba(255,159,10,0.1)',
+    borderWidth: 1,
+    borderColor: Colors.warning,
   },
   statNum: {
     fontSize: 20,
@@ -899,7 +898,7 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.96 }],
   },
   fabText: {
-    color: "#FFFFFF",
+    color: "#000",
     fontSize: 16,
     fontWeight: "600",
   },

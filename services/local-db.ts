@@ -7,6 +7,7 @@ import type {
   ItemHistoryEntry,
   ItemStatus,
   Location,
+  Shipment,
   StackConfiguration,
   StackId,
 } from '../types/dslm';
@@ -157,6 +158,21 @@ async function initializeDatabase(database: SQLite.SQLiteDatabase): Promise<void
       localOperation TEXT
     );
 
+    -- Waste Items table
+    CREATE TABLE IF NOT EXISTS wasteItems (
+      id TEXT PRIMARY KEY,
+      itemId TEXT NOT NULL,
+      ctbId TEXT NOT NULL,
+      originalVolume REAL NOT NULL,
+      wasteVolume REAL NOT NULL,
+      disposalMethod TEXT DEFAULT 'return-earth',
+      markedDate TEXT NOT NULL,
+      disposedDate TEXT,
+      syncVersion INTEGER DEFAULT 0,
+      pendingSync INTEGER DEFAULT 0,
+      localOperation TEXT
+    );
+
     -- Sync metadata
     CREATE TABLE IF NOT EXISTS syncMetadata (
       key TEXT PRIMARY KEY,
@@ -271,6 +287,58 @@ async function runMigrations(database: SQLite.SQLiteDatabase): Promise<void> {
     } catch (error) {
       console.error('[LocalDB] Migration error:', error);
     }
+  }
+
+  // Migration: Add ctbIds, totalMass, itemCount columns to shipments table
+  const shipmentMigrationName = 'add_shipment_extra_columns';
+  const existingShipmentMigration = await database.getAllAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM migrations WHERE name = ?',
+    [shipmentMigrationName]
+  );
+
+  if (existingShipmentMigration[0]?.count === 0) {
+    const addColumnSafe = async (col: string, type: string) => {
+      try {
+        await database.runAsync(`ALTER TABLE shipments ADD COLUMN ${col} ${type}`);
+      } catch {
+        // Column already exists — safe to ignore
+      }
+    };
+
+    await addColumnSafe('ctbIds', 'TEXT');
+    await addColumnSafe('totalMass', 'REAL');
+    await addColumnSafe('itemCount', 'INTEGER');
+
+    await database.runAsync(
+      'INSERT INTO migrations (name) VALUES (?)',
+      [shipmentMigrationName]
+    );
+  }
+
+  // Migration: Add isOutside and previousLocation columns to ctbs table
+  const outsideMigrationName = 'add_ctb_outside_columns';
+  const existingOutsideMigration = await database.getAllAsync<{ count: number }>(
+    'SELECT COUNT(*) as count FROM migrations WHERE name = ?',
+    [outsideMigrationName]
+  );
+
+  if (existingOutsideMigration[0]?.count === 0) {
+    const addColumnSafe = async (col: string, type: string) => {
+      try {
+        await database.runAsync(`ALTER TABLE ctbs ADD COLUMN ${col} ${type}`);
+      } catch {
+        // Column already exists — safe to ignore
+      }
+    };
+
+    await addColumnSafe('isOutside', 'INTEGER DEFAULT 0');
+    await addColumnSafe('previousLocation', 'TEXT');
+
+    await database.runAsync(
+      'INSERT INTO migrations (name) VALUES (?)',
+      [outsideMigrationName]
+    );
+    console.log('[LocalDB] Migration completed: add_ctb_outside_columns');
   }
 }
 
@@ -441,6 +509,18 @@ export async function updateCTB(ctbId: string, updates: Partial<CTB>): Promise<v
     sets.push('notes = ?');
     values.push(updates.notes);
   }
+  if (updates.rfidTag !== undefined) {
+    sets.push('rfidTagType = ?', 'rfidTagId = ?');
+    values.push(updates.rfidTag.type, updates.rfidTag.id);
+  }
+  if (updates.isOutside !== undefined) {
+    sets.push('isOutside = ?');
+    values.push(updates.isOutside ? 1 : 0);
+  }
+  if (updates.previousLocation !== undefined) {
+    sets.push('previousLocation = ?');
+    values.push(updates.previousLocation ? JSON.stringify(updates.previousLocation) : null);
+  }
   if (updates.lastAccessedDate) {
     sets.push('lastAccessedDate = ?');
     values.push(updates.lastAccessedDate.toISOString());
@@ -515,6 +595,8 @@ function rowToCTB(row: any): CTB {
     unpackedVolume: row.unpackedVolume ?? getUnpackedVolumeForSize(size),
     nestingDepth: row.nestingDepth ?? 0,
     isWaste: row.isWaste === 1,
+    isOutside: row.isOutside === 1,
+    previousLocation: row.previousLocation ? JSON.parse(row.previousLocation) : undefined,
     wasteVolumeMultiplier: row.wasteVolumeMultiplier,
     loadedDate: new Date(row.loadedDate),
     lastAccessedDate: row.lastAccessedDate ? new Date(row.lastAccessedDate) : undefined,
@@ -748,8 +830,24 @@ function rowToItem(row: any, historyRows: any[]): InventoryItem {
     serialNumber: row.serialNumber,
     criticality: row.criticality as 'critical' | 'high' | 'medium' | 'low',
     notes: row.notes,
-    history: historyRows.map(rowToHistoryEntry),
+    history: deduplicateHistory(historyRows.map(rowToHistoryEntry)),
   };
+}
+
+/**
+ * Deduplicate history entries that may exist due to sync creating entries with different IDs.
+ * Two entries are considered duplicates if they have the same action and timestamp (within 2s).
+ */
+function deduplicateHistory(entries: ItemHistoryEntry[]): ItemHistoryEntry[] {
+  const seen = new Set<string>();
+  return entries.filter(entry => {
+    // Round timestamp to nearest 2s to catch near-duplicate timestamps
+    const timeKey = Math.round(entry.timestamp.getTime() / 2000);
+    const key = `${entry.action}-${timeKey}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
 }
 
 function rowToHistoryEntry(row: any): ItemHistoryEntry {
@@ -791,6 +889,122 @@ function itemToData(item: InventoryItem): Record<string, any> {
     quantity: item.quantity,
     criticality: item.criticality,
   };
+}
+
+// ===== Waste Item Operations =====
+
+export interface WasteItemRecord {
+  itemId: string;
+  ctbId: string;
+  originalVolume: number;
+  wasteVolume: number;
+  disposalMethod: 'return-earth' | 'deep-space' | 'recycle';
+  markedDate: Date;
+  disposedDate?: Date;
+}
+
+export async function getAllWasteItems(): Promise<WasteItemRecord[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM wasteItems ORDER BY markedDate DESC'
+  );
+  return rows.map((row: any) => ({
+    itemId: row.itemId,
+    ctbId: row.ctbId,
+    originalVolume: row.originalVolume,
+    wasteVolume: row.wasteVolume,
+    disposalMethod: row.disposalMethod,
+    markedDate: new Date(row.markedDate),
+    disposedDate: row.disposedDate ? new Date(row.disposedDate) : undefined,
+  }));
+}
+
+export async function createWasteItem(wasteItem: WasteItemRecord): Promise<void> {
+  const db = await getDatabase();
+  const id = `waste-${wasteItem.itemId}-${Date.now()}`;
+  await db.runAsync(
+    `INSERT INTO wasteItems (id, itemId, ctbId, originalVolume, wasteVolume, disposalMethod, markedDate, pendingSync, localOperation)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+    [
+      id,
+      wasteItem.itemId,
+      wasteItem.ctbId,
+      wasteItem.originalVolume,
+      wasteItem.wasteVolume,
+      wasteItem.disposalMethod,
+      wasteItem.markedDate.toISOString(),
+      'create',
+    ]
+  );
+  await queueChange('WasteItem', id, 'create', { ...wasteItem, markedDate: wasteItem.markedDate.toISOString() });
+}
+
+export async function updateWasteItemDisposalMethod(
+  itemId: string,
+  method: 'return-earth' | 'deep-space' | 'recycle'
+): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    'UPDATE wasteItems SET disposalMethod = ?, pendingSync = 1, localOperation = ? WHERE itemId = ?',
+    [method, 'update', itemId]
+  );
+  await queueChange('WasteItem', itemId, 'update', { disposalMethod: method });
+}
+
+export async function deleteWasteItem(itemId: string): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync('DELETE FROM wasteItems WHERE itemId = ?', [itemId]);
+  await queueChange('WasteItem', itemId, 'delete', { itemId });
+}
+
+// ===== Shipment Operations =====
+
+export async function createShipment(shipment: Shipment): Promise<void> {
+  const db = await getDatabase();
+  await db.runAsync(
+    `INSERT INTO shipments (id, manifestId, destination, priority, notes, status, launchedAt, ctbIds, totalMass, itemCount, pendingSync, localOperation)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)`,
+    [
+      shipment.id,
+      shipment.manifestId,
+      shipment.destination,
+      shipment.priority,
+      shipment.notes ?? null,
+      shipment.status,
+      shipment.launchedAt ? shipment.launchedAt.toISOString() : null,
+      JSON.stringify(shipment.ctbIds),
+      shipment.totalMass,
+      shipment.itemCount,
+      'create',
+    ]
+  );
+  await queueChange('Shipment', shipment.id, 'create', {
+    ...shipment,
+    launchedAt: shipment.launchedAt?.toISOString(),
+    createdAt: shipment.createdAt.toISOString(),
+  });
+}
+
+export async function getAllShipments(): Promise<Shipment[]> {
+  const db = await getDatabase();
+  const rows = await db.getAllAsync<any>(
+    'SELECT * FROM shipments WHERE deletedAt IS NULL ORDER BY launchedAt DESC'
+  );
+  return rows.map((row: any) => ({
+    id: row.id,
+    manifestId: row.manifestId,
+    destination: row.destination,
+    priority: row.priority,
+    notes: row.notes,
+    status: row.status,
+    ctbIds: row.ctbIds ? JSON.parse(row.ctbIds) : [],
+    totalMass: row.totalMass ?? 0,
+    itemCount: row.itemCount ?? 0,
+    createdAt: new Date(row.launchedAt || Date.now()),
+    launchedAt: row.launchedAt ? new Date(row.launchedAt) : undefined,
+    deliveredAt: row.deliveredAt ? new Date(row.deliveredAt) : undefined,
+    receivedAt: row.receivedAt ? new Date(row.receivedAt) : undefined,
+  }));
 }
 
 // ===== Stack Operations =====

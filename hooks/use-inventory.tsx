@@ -16,8 +16,10 @@ import type {
   Location,
   NestingRule,
   SearchCriteria,
+  Shipment,
   StackConfiguration,
   StackId,
+  TrackingTag,
   WasteItem,
   Category,
 } from "../types/dslm";
@@ -49,6 +51,7 @@ type InventoryContextValue = {
   stacks: StackConfiguration[];
   wasteItems: WasteItem[];
   categories: Category[];
+  shipments: Shipment[];
 
   // Search & filter
   searchItems: (criteria: SearchCriteria) => InventoryItem[];
@@ -79,6 +82,7 @@ type InventoryContextValue = {
     timeTaken?: number,
   ) => Promise<void>;
   updateItemNotes: (itemId: string, notes: string) => Promise<void>;
+  updateCTBTag: (ctbId: string, rfidTag: TrackingTag) => Promise<void>;
   deleteItem: (itemId: string) => Promise<void>;
   deleteCTB: (ctbId: string) => Promise<void>;
 
@@ -91,6 +95,9 @@ type InventoryContextValue = {
   getNestingPath: (ctbId: string) => string[];
   getIncomingCTBs: () => CTB[];
   receiveCTB: (ctbId: string, userId?: string) => Promise<void>;
+  takeOutCTB: (ctbId: string, userId?: string) => Promise<void>;
+  returnCTB: (ctbId: string, userId?: string) => Promise<void>;
+  outsideCTBs: CTB[];
 
   // Analytics
   getStackUtilization: (stackId: StackId) => number;
@@ -195,6 +202,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
   const [stacks, setStacks] = useState<StackConfiguration[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [wasteItems, setWasteItems] = useState<WasteItem[]>([]);
+  const [shipments, setShipments] = useState<Shipment[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   // Load data from local database on mount
@@ -214,18 +222,23 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
   const loadFromDatabase = async () => {
     setIsLoading(true);
     try {
-      const [dbItems, dbCTBs, dbStacks, dbCategories] = await Promise.all([
+      const [dbItems, dbCTBs, dbStacks, dbCategories, dbWasteItems, dbShipments] = await Promise.all([
         localDb.getAllItems(),
         localDb.getAllCTBs(),
         localDb.getAllStacks(),
         localDb.getAllCategories(),
+        localDb.getAllWasteItems(),
+        localDb.getAllShipments(),
       ]);
 
       setInventoryItems(dbItems);
       setCTBs(dbCTBs);
       setStacks(dbStacks);
+      setWasteItems(dbWasteItems);
+      setShipments(dbShipments);
       setCategories(dbCategories.map(cat => ({
         ...cat,
+        icon: cat.icon ?? undefined,
         isSystem: cat.isSystem,
         isImportant: cat.isImportant ?? false,
       })));
@@ -410,6 +423,26 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         await localDb.createItem(item);
       }
 
+      // Create shipment record if metadata provided
+      if (metadata?.manifestId || metadata?.destination) {
+        const shipmentRecord: Shipment = {
+          id: `shipment-${Date.now()}`,
+          manifestId: metadata.manifestId || `MNF-${Date.now()}`,
+          destination: metadata.destination || 'Unknown',
+          priority: (metadata.priority as Shipment['priority']) || 'Normal',
+          notes: metadata.notes,
+          status: 'launched',
+          ctbIds: newCtbs.map(c => c.id),
+          totalMass: newCtbs.reduce((sum, c) => sum + c.mass, 0),
+          itemCount: newItems.length,
+          createdAt: new Date(),
+          launchedAt: new Date(),
+        };
+
+        await localDb.createShipment(shipmentRecord);
+        setShipments((prev) => [shipmentRecord, ...prev]);
+      }
+
       // Update local state
       setCTBs((prev) => [...ctbsWithIncoming, ...prev]);
       setInventoryItems((prev) => [...itemsWithIncoming, ...prev]);
@@ -562,13 +595,15 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         markedDate: new Date(),
       };
 
+      // Persist waste item to database
+      await localDb.createWasteItem(wasteItem);
       setWasteItems((prev) => [...prev, wasteItem]);
 
       const historyEntry: ItemHistoryEntry = {
         timestamp: new Date(),
         action: "marked-waste",
         userId,
-        notes: "Marked for waste disposal",
+        notes: `Marked for waste disposal (${(wasteItem.wasteVolume * 1000).toFixed(1)}L)`,
         timeTaken,
       };
 
@@ -600,6 +635,20 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     setInventoryItems((prev) =>
       prev.map((item) =>
         item.id === itemId ? { ...item, notes } : item,
+      ),
+    );
+
+    await pushIfOnline();
+  }, []);
+
+  const updateCTBTag = useCallback(async (ctbId: string, rfidTag: TrackingTag) => {
+    console.log(`[Inventory] Updating NFC tag for CTB: ${ctbId}`);
+
+    await localDb.updateCTB(ctbId, { rfidTag });
+
+    setCTBs((prev) =>
+      prev.map((ctb) =>
+        ctb.id === ctbId ? { ...ctb, rfidTag } : ctb,
       ),
     );
 
@@ -893,6 +942,75 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     [inventoryItems, ctbs],
   );
 
+  const takeOutCTB = useCallback(
+    async (ctbId: string, userId?: string) => {
+      const ctb = ctbs.find((c) => c.id === ctbId);
+      if (!ctb) return;
+      console.log(`[Inventory] Taking out CTB: ${ctbId}`);
+
+      await localDb.updateCTB(ctbId, {
+        isOutside: true,
+        previousLocation: ctb.location,
+        lastAccessedDate: new Date(),
+        lastAccessedBy: userId,
+      });
+
+      setCTBs((prev) =>
+        prev.map((c) =>
+          c.id === ctbId
+            ? { ...c, isOutside: true, previousLocation: c.location, lastAccessedDate: new Date(), lastAccessedBy: userId }
+            : c,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [ctbs],
+  );
+
+  const returnCTB = useCallback(
+    async (ctbId: string, userId?: string) => {
+      const ctb = ctbs.find((c) => c.id === ctbId);
+      if (!ctb || !ctb.previousLocation) return;
+      console.log(`[Inventory] Returning CTB: ${ctbId} to ${ctb.previousLocation.path}`);
+
+      const dest = ctb.previousLocation;
+
+      await localDb.updateCTB(ctbId, {
+        isOutside: false,
+        previousLocation: undefined,
+        location: dest,
+        lastAccessedDate: new Date(),
+        lastAccessedBy: userId,
+      });
+
+      setCTBs((prev) =>
+        prev.map((c) =>
+          c.id === ctbId
+            ? { ...c, isOutside: false, previousLocation: undefined, location: dest, lastAccessedDate: new Date(), lastAccessedBy: userId }
+            : c,
+        ),
+      );
+
+      // Update items in CTB back to previous location
+      const itemsInCtb = inventoryItems.filter((item) => item.ctbId === ctbId);
+      for (const item of itemsInCtb) {
+        await localDb.updateItem(item.id, { location: dest });
+      }
+
+      setInventoryItems((prev) =>
+        prev.map((item) =>
+          item.ctbId === ctbId ? { ...item, location: dest } : item,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [ctbs, inventoryItems],
+  );
+
+  const outsideCTBs = useMemo(() => ctbs.filter((c) => c.isOutside), [ctbs]);
+
   // Analytics
   const getStackUtilization = useCallback(
     (stackId: StackId): number => {
@@ -939,10 +1057,12 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
   );
 
   const updateWasteDisposalMethod = useCallback(
-    (itemId: string, method: "return-earth" | "deep-space" | "recycle") => {
+    async (itemId: string, method: "return-earth" | "deep-space" | "recycle") => {
+      await localDb.updateWasteItemDisposalMethod(itemId, method);
       setWasteItems((prev) =>
         prev.map((w) => (w.itemId === itemId ? { ...w, disposalMethod: method } : w)),
       );
+      await pushIfOnline();
     },
     [],
   );
@@ -1020,6 +1140,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       stacks,
       wasteItems,
       categories,
+      shipments,
 
       // Search & filter
       searchItems,
@@ -1039,6 +1160,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       markAsWaste,
       relocateCTB,
       updateItemNotes,
+      updateCTBTag,
       deleteItem,
       deleteCTB,
 
@@ -1051,6 +1173,9 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       getNestingPath,
       getIncomingCTBs,
       receiveCTB,
+      takeOutCTB,
+      returnCTB,
+      outsideCTBs,
 
       // Analytics
       getStackUtilization,
@@ -1071,6 +1196,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       stacks,
       wasteItems,
       categories,
+      shipments,
       searchItems,
       findItemById,
       findCTBById,
@@ -1086,6 +1212,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       markAsWaste,
       relocateCTB,
       updateItemNotes,
+      updateCTBTag,
       deleteItem,
       deleteCTB,
       addCategory,
@@ -1094,6 +1221,9 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       getNestingPath,
       getIncomingCTBs,
       receiveCTB,
+      takeOutCTB,
+      returnCTB,
+      outsideCTBs,
       getStackUtilization,
       getExpiringItems,
       getImportantItems,

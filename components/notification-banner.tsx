@@ -25,7 +25,7 @@ const TYPE_CONFIG: Record<NotificationType, { icon: keyof typeof Ionicons.glyphM
   incoming: {
     icon: 'rocket',
     color: Colors.blue,
-    bgColor: 'rgba(15, 111, 255, 0.25)',
+    bgColor: 'rgba(255, 255, 255, 0.15)',
   },
   warning: {
     icon: 'warning',

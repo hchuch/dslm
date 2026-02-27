@@ -166,7 +166,7 @@ const styles = StyleSheet.create({
     },
     badgeText: {
         fontSize: 12,
-        color: '#FFFFFF',
+        color: '#000',
         fontWeight: '600',
         textTransform: 'uppercase',
     },

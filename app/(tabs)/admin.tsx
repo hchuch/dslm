@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
-  Alert,
   FlatList,
   Modal,
   Pressable,
@@ -14,6 +13,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { ThemedText } from '../../components/themed-text';
 import { Colors } from '../../constants/colors';
 import { useAuth } from '../../contexts/auth-context';
+import { useDialog } from '../../hooks/use-dialog';
 
 import { getApiBaseUrlSync } from '../../services/api-config';
 
@@ -55,6 +55,7 @@ export default function AdminScreen() {
     currentLocation: 'Earth',
   });
   const [isSaving, setIsSaving] = useState(false);
+  const { showDialog } = useDialog();
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -113,12 +114,12 @@ export default function AdminScreen() {
 
   const handleSave = async () => {
     if (!formData.name.trim()) {
-      Alert.alert('Error', 'Name is required');
+      showDialog('Error', 'Name is required');
       return;
     }
 
     if (!editingUser && (!formData.username.trim() || !formData.password)) {
-      Alert.alert('Error', 'Username and password are required for new users');
+      showDialog('Error', 'Username and password are required for new users');
       return;
     }
 
@@ -170,7 +171,7 @@ export default function AdminScreen() {
       setModalVisible(false);
       fetchUsers();
     } catch (err: any) {
-      Alert.alert('Error', err.message);
+      showDialog('Error', err.message);
     } finally {
       setIsSaving(false);
     }
@@ -178,11 +179,11 @@ export default function AdminScreen() {
 
   const handleDelete = (user: UserAccount) => {
     if (user.id === currentUser?.id) {
-      Alert.alert('Error', 'You cannot delete your own account');
+      showDialog('Error', 'You cannot delete your own account');
       return;
     }
 
-    Alert.alert(
+    showDialog(
       'Delete User',
       `Are you sure you want to delete "${user.name}"? This action cannot be undone.`,
       [
@@ -207,7 +208,7 @@ export default function AdminScreen() {
 
               fetchUsers();
             } catch (err: any) {
-              Alert.alert('Error', err.message);
+              showDialog('Error', err.message);
             }
           },
         },
@@ -417,7 +418,7 @@ export default function AdminScreen() {
               </Pressable>
               <Pressable style={styles.saveButton} onPress={handleSave} disabled={isSaving}>
                 {isSaving ? (
-                  <ActivityIndicator color="#FFF" size="small" />
+                  <ActivityIndicator color="#000" size="small" />
                 ) : (
                   <ThemedText style={styles.saveButtonText}>
                     {editingUser ? 'Update' : 'Create'}
@@ -470,7 +471,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   addButtonText: {
-    color: '#FFF',
+    color: '#000',
     fontWeight: '600',
   },
   list: {
@@ -566,7 +567,7 @@ const styles = StyleSheet.create({
     borderRadius: 8,
   },
   retryButtonText: {
-    color: '#FFF',
+    color: '#000',
     fontWeight: '600',
   },
   emptyText: {
@@ -633,7 +634,7 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   roleOptionTextSelected: {
-    color: '#FFF',
+    color: '#000',
     fontWeight: '600',
   },
   locationSelector: {
@@ -687,7 +688,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   saveButtonText: {
-    color: '#FFF',
+    color: '#000',
     fontWeight: '600',
   },
 });

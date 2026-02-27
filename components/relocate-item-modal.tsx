@@ -1,7 +1,6 @@
 import { Ionicons } from "@expo/vector-icons";
 import React, { useMemo, useState } from "react";
 import {
-    Alert,
     Modal,
     Pressable,
     ScrollView,
@@ -11,6 +10,7 @@ import {
 } from "react-native";
 
 import { Colors } from "../constants/colors";
+import { useDialog } from '../hooks/use-dialog';
 import { useInventory } from "../hooks/use-inventory";
 import type { CTB, InventoryItem, Location } from "../types/dslm";
 import { ThemedText } from "./themed-text";
@@ -39,6 +39,7 @@ export function RelocateItemModal({
   onRelocated,
 }: Props) {
   const { ctbs, moveItem, getItemsInCTB } = useInventory();
+  const { showDialog } = useDialog();
 
   const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -125,7 +126,7 @@ export function RelocateItemModal({
     if (!item || !selectedCTB) return;
 
     if (!itemFitsInCTB(selectedCTB)) {
-      Alert.alert(
+      showDialog(
         "Insufficient Space",
         `This item (${item.volume.toFixed(3)} m³) does not fit in ${selectedCTB.id}.\n\nAvailable space: ${getAvailableVolume(selectedCTB).toFixed(3)} m³`,
         [{ text: "OK" }],
@@ -135,7 +136,7 @@ export function RelocateItemModal({
 
     const newLocation = selectedCTB.location;
 
-    Alert.alert(
+    showDialog(
       "Confirm Relocation",
       `Move "${item.name}" to ${selectedCTB.id} at ${newLocation.path}?`,
       [
@@ -392,7 +393,7 @@ export function RelocateItemModal({
             <Ionicons
               name="swap-horizontal"
               size={20}
-              color={canRelocate ? "#FFFFFF" : Colors.textTertiary}
+              color={canRelocate ? "#000" : Colors.textTertiary}
             />
             <ThemedText
               style={[
@@ -663,7 +664,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.surface,
   },
   relocateButtonText: {
-    color: "#FFFFFF",
+    color: "#000",
     fontSize: 16,
     fontWeight: "600",
   },

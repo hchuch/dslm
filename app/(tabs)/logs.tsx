@@ -16,7 +16,7 @@ type LogEntry = ItemHistoryEntry & {
     id: string; // unique ID for key
 };
 
-const ACTION_FILTERS = ['All', 'moved', 'consumed', 'delivered', 'loaded', 'inspected', 'relocated', 'marked-waste'];
+const ACTION_FILTERS = ['All', 'moved', 'consumed', 'delivered', 'loaded', 'inspected', 'relocated', 'marked-waste', 'nfc-assigned'];
 
 export default function LogsScreen() {
     const { inventoryItems } = useInventory();
@@ -86,7 +86,9 @@ export default function LogsScreen() {
                                         ? 'tray.fill'
                                         : item.action === 'marked-waste'
                                             ? 'trash.fill'
-                                            : 'clock.fill'
+                                            : item.action === 'nfc-assigned'
+                                                ? 'antenna.radiowaves.left.and.right'
+                                                : 'clock.fill'
                         }
                         size={20}
                         color={Colors.blue}
@@ -279,7 +281,7 @@ const styles = StyleSheet.create({
         fontSize: 14,
     },
     activeFilterText: {
-        color: Colors.textPrimary,
+        color: '#000',
         fontWeight: '600',
     },
     listContent: {

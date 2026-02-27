@@ -109,6 +109,8 @@ export interface CTB {
   unpackedVolume: number; // Internal storage capacity (m³)
   nestingDepth: number; // 0 = root, max 3 levels
   isWaste: boolean; // Is this CTB marked as waste?
+  isOutside?: boolean; // true when CTB is taken out of stack
+  previousLocation?: Location; // saved location for restoring
   wasteVolumeMultiplier?: number; // 1.3-1.5x for used packaging
   loadedDate: Date;
   lastAccessedDate?: Date;
@@ -168,7 +170,8 @@ export interface ItemHistoryEntry {
     | "consumed"
     | "inspected"
     | "relocated"
-    | "marked-waste";
+    | "marked-waste"
+    | "nfc-assigned";
   userId?: string; // Astronaut or technician ID
   fromLocation?: Location;
   toLocation?: Location;
@@ -276,6 +279,8 @@ export interface Shipment {
   notes?: string;
   status: "draft" | "manifested" | "launched" | "in-transit" | "delivered" | "received";
   ctbIds: string[]; // CTBs in this shipment
+  totalMass: number; // Total mass in kg
+  itemCount: number; // Total number of items
   createdAt: Date;
   launchedAt?: Date;
   deliveredAt?: Date;

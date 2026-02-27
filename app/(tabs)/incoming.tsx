@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Alert, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CTBViewer } from '../../components/ctb-viewer';
@@ -8,6 +8,7 @@ import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/colors';
 import { useAuth } from '../../contexts/auth-context';
+import { useDialog } from '../../hooks/use-dialog';
 import { useInventory } from '../../hooks/use-inventory';
 import type { CTB } from '../../types/dslm';
 
@@ -16,12 +17,14 @@ export default function IncomingScreen() {
   const { user } = useAuth();
   const incomingCTBs = useMemo(() => getIncomingCTBs(), [getIncomingCTBs]);
   const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
+  const [selectedCTBVisible, setSelectedCTBVisible] = useState(false);
+  const { showDialog } = useDialog();
 
   const handleReceiveCTB = (ctbId: string) => {
     const ctb = incomingCTBs.find(c => c.id === ctbId);
     if (!ctb) return;
 
-    Alert.alert(
+    showDialog(
       "Receive CTB",
       `Confirm receipt of ${ctb.id}?\n\nTarget Location:\nStack: ${ctb.location.stack}\nPosition: ${ctb.location.position}`,
       [
@@ -30,7 +33,8 @@ export default function IncomingScreen() {
           text: "Confirm Receipt",
           onPress: () => {
             receiveCTB(ctbId);
-            setSelectedCTB(null);
+            setSelectedCTBVisible(false);
+            setTimeout(() => setSelectedCTB(null), 400);
           }
         }
       ]
@@ -65,13 +69,21 @@ export default function IncomingScreen() {
                 <Pressable
                   key={ctb.id}
                   style={({ pressed }) => [styles.card, pressed && styles.cardPressed]}
-                  onPress={() => setSelectedCTB(ctb)}
+                  onPress={() => {
+                    setSelectedCTB(ctb);
+                    setSelectedCTBVisible(true);
+                  }}
                 >
                   <View style={styles.iconContainer}>
                     <Ionicons name="cube" size={40} color={Colors.blue} />
                     <View style={styles.sizeBadge}>
                       <ThemedText style={styles.sizeText}>{ctb.size * 2}</ThemedText>
                     </View>
+                    {ctb.rfidTag?.id && !ctb.rfidTag.id.startsWith('RFID-') && (
+                      <View style={styles.nfcBadge}>
+                        <Ionicons name="radio-outline" size={12} color={Colors.success} />
+                      </View>
+                    )}
                   </View>
 
                   <View style={styles.cardContent}>
@@ -101,7 +113,7 @@ export default function IncomingScreen() {
                           handleReceiveCTB(ctb.id);
                         }}
                       >
-                        <Ionicons name="download-outline" size={16} color={Colors.textPrimary} style={{ marginRight: 6 }} />
+                        <Ionicons name="download-outline" size={16} color="#000" style={{ marginRight: 6 }} />
                         <ThemedText style={styles.receiveButtonText}>Receive</ThemedText>
                       </Pressable>
                     ) : (
@@ -119,12 +131,17 @@ export default function IncomingScreen() {
           )}
         </ScrollView>
 
-        <CTBViewer
-          visible={!!selectedCTB}
-          ctb={selectedCTB}
-          onClose={() => setSelectedCTB(null)}
-          onReceive={handleReceiveCTB}
-        />
+        {selectedCTB && (
+          <CTBViewer
+            visible={selectedCTBVisible}
+            ctb={selectedCTB}
+            onClose={() => {
+              setSelectedCTBVisible(false);
+              setTimeout(() => setSelectedCTB(null), 400);
+            }}
+            onReceive={handleReceiveCTB}
+          />
+        )}
       </SafeAreaView>
     </ThemedView>
   );
@@ -214,6 +231,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.borderLight, // Using borderLight for subtle contrast
   },
+  nfcBadge: {
+    position: 'absolute',
+    top: 4,
+    left: 4,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(16, 185, 129, 0.2)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   sizeText: {
     fontSize: 10,
     fontWeight: '700',
@@ -267,7 +295,7 @@ const styles = StyleSheet.create({
     opacity: 0.8,
   },
   receiveButtonText: {
-    color: Colors.textPrimary,
+    color: '#000',
     fontSize: 12,
     fontWeight: '600',
   },

@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useEffect, useRef, useState } from 'react';
-import { Alert, Animated, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Animated, Modal, Pressable, ScrollView, StyleSheet, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CTBViewer } from '../../components/ctb-viewer';
@@ -9,18 +9,25 @@ import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/colors';
 import { useInventory } from '../../hooks/use-inventory';
+import { useDialog } from '../../hooks/use-dialog';
 import { useNFC } from '../../hooks/use-nfc';
 import type { CTB, StackId } from '../../types/dslm';
 
 export default function ModuleScreen() {
-  const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById, reorganizeStack, updateStackLayout } = useInventory();
+  const { stacks, ctbs, getItemsInCTB, getStackUtilization, findCTBById, findItemById, reorganizeStack, updateStackLayout, outsideCTBs } = useInventory();
   const [selectedStack, setSelectedStack] = useState<StackId | undefined>();
   const [isReorganizing, setIsReorganizing] = useState(false);
   const [swapSourceId, setSwapSourceId] = useState<string | null>(null);
   const [tempStackCtbs, setTempStackCtbs] = useState<CTB[]>([]);
   const [scannedCTB, setScannedCTB] = useState<CTB | null>(null);
+  const [scannedCTBVisible, setScannedCTBVisible] = useState(false);
   const [inspectedCTB, setInspectedCTB] = useState<CTB | null>(null);
+  const [inspectedCTBVisible, setInspectedCTBVisible] = useState(false);
+  const [outsideExpanded, setOutsideExpanded] = useState(true);
+  const [outsideInspectedCTB, setOutsideInspectedCTB] = useState<CTB | null>(null);
+  const [outsideInspectedVisible, setOutsideInspectedVisible] = useState(false);
   const { scanTag, isScanning, isSupported } = useNFC();
+  const { showDialog } = useDialog();
 
   const stackDetails = selectedStack
     ? {
@@ -29,7 +36,7 @@ export default function ModuleScreen() {
       ctbsInStack: isReorganizing
         ? tempStackCtbs
         : ctbs
-            .filter(ctb => ctb.location.stack === selectedStack)
+            .filter(ctb => ctb.location.stack === selectedStack && !ctb.isOutside)
             .sort((a, b) => {
               // Primary sort: layer (ascending - layer 1 first)
               const layerDiff = (a.location.layer || 1) - (b.location.layer || 1);
@@ -39,7 +46,7 @@ export default function ModuleScreen() {
             }),
       utilization: getStackUtilization(selectedStack),
       totalMass: ctbs
-        .filter(ctb => ctb.location.stack === selectedStack)
+        .filter(ctb => ctb.location.stack === selectedStack && !ctb.isOutside)
         .reduce((sum, ctb) => sum + ctb.mass, 0),
     }
     : null;
@@ -51,6 +58,7 @@ export default function ModuleScreen() {
       const ctb = findCTBById(id);
       if (ctb) {
         setScannedCTB(ctb);
+        setScannedCTBVisible(true);
         return;
       }
 
@@ -59,14 +67,15 @@ export default function ModuleScreen() {
         const parentCTB = findCTBById(item.ctbId);
         if (parentCTB) {
           setScannedCTB(parentCTB);
-          Alert.alert('Item Found', `Item "${item.name}" is in CTB ${parentCTB.id}`);
+          setScannedCTBVisible(true);
+          showDialog('Item Found', `Item "${item.name}" is in CTB ${parentCTB.id}`);
         } else {
-          Alert.alert('Item Found', `Item "${item.name}" found, but parent CTB is unknown.`);
+          showDialog('Item Found', `Item "${item.name}" found, but parent CTB is unknown.`);
         }
         return;
       }
 
-      Alert.alert('Unknown Tag', `Tag ID: ${id} not found in inventory.`);
+      showDialog('Unknown Tag', `Tag ID: ${id} not found in inventory.`);
     }
   };
 
@@ -193,6 +202,57 @@ export default function ModuleScreen() {
         </View>
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+          {/* Outside CTBs Section */}
+          {outsideCTBs.length > 0 && (
+            <View style={styles.outsideSection}>
+              <Pressable
+                style={styles.outsideHeader}
+                onPress={() => setOutsideExpanded(!outsideExpanded)}
+              >
+                <View style={styles.outsideHeaderLeft}>
+                  <Ionicons name="log-out-outline" size={18} color={Colors.warning} />
+                  <ThemedText style={styles.outsideHeaderTitle}>Outside CTBs</ThemedText>
+                  <View style={styles.outsideBadge}>
+                    <ThemedText style={styles.outsideBadgeText}>{outsideCTBs.length}</ThemedText>
+                  </View>
+                </View>
+                <Ionicons
+                  name={outsideExpanded ? "chevron-up" : "chevron-down"}
+                  size={18}
+                  color={Colors.textSecondary}
+                />
+              </Pressable>
+              {outsideExpanded && (
+                <View style={styles.outsideList}>
+                  {outsideCTBs.map((ctb) => (
+                    <Pressable
+                      key={ctb.id}
+                      style={({ pressed }) => [
+                        styles.outsideCard,
+                        pressed && { opacity: 0.7 },
+                      ]}
+                      onPress={() => {
+                        setOutsideInspectedCTB(ctb);
+                        setOutsideInspectedVisible(true);
+                      }}
+                    >
+                      <View style={styles.outsideCardIcon}>
+                        <Ionicons name="cube-outline" size={20} color={Colors.warning} />
+                      </View>
+                      <View style={styles.outsideCardInfo}>
+                        <ThemedText style={styles.outsideCardTitle}>{ctb.id}</ThemedText>
+                        <ThemedText style={styles.outsideCardMeta}>
+                          Size {ctb.size} · From {ctb.previousLocation?.path || '?'}
+                        </ThemedText>
+                      </View>
+                      <Ionicons name="chevron-forward" size={18} color={Colors.textTertiary} />
+                    </Pressable>
+                  ))}
+                </View>
+              )}
+            </View>
+          )}
+
           <ModuleVisualization
             stacks={stacks}
             ctbs={ctbs}
@@ -215,9 +275,7 @@ export default function ModuleScreen() {
             onPress={handleScan}
             disabled={isScanning}
           >
-            <ThemedText style={styles.fabIcon}>
-              {isScanning ? '...' : '📡'}
-            </ThemedText>
+            <Ionicons name={isScanning ? 'ellipsis-horizontal' : 'radio-outline'} size={24} color="#000" />
           </Pressable>
         )}
 
@@ -235,7 +293,7 @@ export default function ModuleScreen() {
                 <View style={[styles.modalHeader, isReorganizing && { backgroundColor: Colors.surfaceHover, borderBottomColor: Colors.blue }]}>
                   <Pressable onPress={() => {
                     if (isReorganizing) {
-                      Alert.alert('Cancel Reorganization?', 'Changes will be lost.', [
+                      showDialog('Cancel Reorganization?', 'Changes will be lost.', [
                         { text: 'Keep Editing', style: 'cancel' },
                         { text: 'Discard', style: 'destructive', onPress: () => { setIsReorganizing(false); setSwapSourceId(null); } }
                       ]);
@@ -255,7 +313,7 @@ export default function ModuleScreen() {
                           updateStackLayout(selectedStack, tempStackCtbs);
                           setIsReorganizing(false);
                           setSwapSourceId(null);
-                          Alert.alert('Saved', 'New stack layout confirmed.');
+                          showDialog('Saved', 'New stack layout confirmed.');
                         }
                       }}
                       style={styles.optimizeBtn}
@@ -266,7 +324,7 @@ export default function ModuleScreen() {
                     <Pressable
                       onPress={() => {
                         if (selectedStack) {
-                          Alert.alert(
+                          showDialog(
                             'Reorganize Stack',
                             'Choose an optimization method:',
                             [
@@ -283,7 +341,7 @@ export default function ModuleScreen() {
                                 text: 'Auto-Optimize',
                                 onPress: () => {
                                   reorganizeStack(selectedStack, 'auto');
-                                  Alert.alert('Auto-Optimized', 'Stack defragmented and sorted by mass.');
+                                  showDialog('Auto-Optimized', 'Stack defragmented and sorted by mass.');
                                 }
                               }
                             ]
@@ -369,6 +427,7 @@ export default function ModuleScreen() {
                               } else {
                                 // Open CTB viewer
                                 setInspectedCTB(ctb);
+                                setInspectedCTBVisible(true);
                               }
                             }}
                           >
@@ -378,6 +437,11 @@ export default function ModuleScreen() {
                                     <ThemedText style={styles.layerBadgeText}>L{ctb.location.layer || 1}</ThemedText>
                                   </View>
                                   <ThemedText style={styles.ctbId}>{ctb.id}</ThemedText>
+                                  {ctb.rfidTag?.id && !ctb.rfidTag.id.startsWith('RFID-') && (
+                                    <View style={styles.nfcBadge}>
+                                      <Ionicons name="radio-outline" size={10} color={Colors.success} />
+                                    </View>
+                                  )}
                                 </View>
                                 <View style={styles.ctbSizeBadge}>
                                   <ThemedText style={styles.ctbSizeText}>{ctb.size}m³</ThemedText>
@@ -444,32 +508,122 @@ export default function ModuleScreen() {
                 </ScrollView>
 
                 {/* CTB Viewer inside the modal to appear on top */}
-                <CTBViewer
-                  visible={!!inspectedCTB}
-                  ctb={inspectedCTB}
-                  onClose={() => {
-                    setInspectedCTB(null);
-                  }}
-                />
+                {inspectedCTB && (
+                  <CTBViewer
+                    visible={inspectedCTBVisible}
+                    ctb={inspectedCTB}
+                    onClose={() => {
+                      setInspectedCTBVisible(false);
+                      setTimeout(() => setInspectedCTB(null), 400);
+                    }}
+                  />
+                )}
               </>
             )}
           </ThemedView>
         </Modal>
 
         {/* CTB Viewer for NFC scanned CTBs (outside modal) */}
-        <CTBViewer
-          visible={!!scannedCTB && !selectedStack}
-          ctb={scannedCTB}
-          onClose={() => {
-            setScannedCTB(null);
-          }}
-        />
+        {scannedCTB && !selectedStack && (
+          <CTBViewer
+            visible={scannedCTBVisible}
+            ctb={scannedCTB}
+            onClose={() => {
+              setScannedCTBVisible(false);
+              setTimeout(() => setScannedCTB(null), 400);
+            }}
+          />
+        )}
+        {/* Outside CTB Viewer */}
+        {outsideInspectedCTB && (
+          <CTBViewer
+            visible={outsideInspectedVisible}
+            ctb={outsideInspectedCTB}
+            onClose={() => {
+              setOutsideInspectedVisible(false);
+              setTimeout(() => setOutsideInspectedCTB(null), 400);
+            }}
+          />
+        )}
       </SafeAreaView>
     </ThemedView>
   );
 }
 
 const styles = StyleSheet.create({
+  // Outside CTBs
+  outsideSection: {
+    marginHorizontal: 16,
+    marginBottom: 16,
+    backgroundColor: 'rgba(255, 214, 10, 0.06)',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 214, 10, 0.2)',
+    overflow: 'hidden',
+  },
+  outsideHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+  },
+  outsideHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  outsideHeaderTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.warning,
+  },
+  outsideBadge: {
+    backgroundColor: Colors.warning,
+    borderRadius: 10,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    minWidth: 20,
+    alignItems: 'center',
+  },
+  outsideBadgeText: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#000',
+  },
+  outsideList: {
+    paddingHorizontal: 12,
+    paddingBottom: 12,
+    gap: 8,
+  },
+  outsideCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 10,
+    padding: 12,
+    gap: 10,
+  },
+  outsideCardIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+    backgroundColor: 'rgba(255, 214, 10, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  outsideCardInfo: {
+    flex: 1,
+  },
+  outsideCardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  outsideCardMeta: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.background,
@@ -598,6 +752,14 @@ const styles = StyleSheet.create({
     fontSize: 15,
     fontWeight: '700',
   },
+  nfcBadge: {
+    width: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: 'rgba(16, 185, 129, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   ctbSizeBadge: {
     backgroundColor: Colors.blueGlow,
     paddingHorizontal: 10,
@@ -686,9 +848,6 @@ const styles = StyleSheet.create({
   },
   fabScanning: {
     backgroundColor: '#EAB308',
-  },
-  fabIcon: {
-    fontSize: 24,
   },
   reorgCard: {
     borderStyle: 'dashed',

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
+import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useInventory } from '../hooks/use-inventory';
+import { useDialog } from '../hooks/use-dialog';
 import type { InventoryItem, ItemCategory } from '../types/dslm';
 import { ThemedText } from './themed-text';
 import { ThemedView } from './themed-view';
@@ -18,6 +19,7 @@ const EXPIRY_REQUIRED_CATEGORIES: ItemCategory[] = ['food', 'medical'];
 
 export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: AddItemModalProps) {
     const { addItem } = useInventory();
+    const { showDialog } = useDialog();
     const [name, setName] = useState('');
     const [category, setCategory] = useState<ItemCategory>('misc');
     const [quantity, setQuantity] = useState('1');
@@ -30,13 +32,13 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
 
     const handleAdd = (keepOpen = false) => {
         if (!name) {
-            Alert.alert('Required', 'Please enter an item name.');
+            showDialog('Required', 'Please enter an item name.');
             return;
         }
 
         // Validate expiry date for food/medical items
         if (requiresExpiry && !expiryDate) {
-            Alert.alert('Required', `Expiration date is required for ${category} items.`);
+            showDialog('Required', `Expiration date is required for ${category} items.`);
             return;
         }
 
@@ -45,7 +47,7 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
         if (expiryDate) {
             parsedExpiryDate = new Date(expiryDate);
             if (isNaN(parsedExpiryDate.getTime())) {
-                Alert.alert('Invalid Date', 'Please enter a valid expiration date (YYYY-MM-DD).');
+                showDialog('Invalid Date', 'Please enter a valid expiration date (YYYY-MM-DD).');
                 return;
             }
         }
@@ -243,7 +245,7 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
                             <ThemedText style={styles.textStyle}>Cancel</ThemedText>
                         </Pressable>
                         <Pressable style={[styles.button, styles.buttonNext]} onPress={() => handleAdd(true)}>
-                            <ThemedText style={styles.textStyle}>Add & Next</ThemedText>
+                            <ThemedText style={[styles.textStyle, { color: '#000' }]}>Add & Next</ThemedText>
                         </Pressable>
                         <Pressable style={[styles.button, styles.buttonAdd]} onPress={() => handleAdd(false)}>
                             <ThemedText style={styles.textStyle}>Done</ThemedText>
@@ -315,15 +317,15 @@ const styles = StyleSheet.create({
         borderColor: '#3A3A3C',
     },
     categoryChipSelected: {
-        backgroundColor: '#0B3D91',
-        borderColor: '#0B3D91',
+        backgroundColor: Colors.blue,
+        borderColor: Colors.blue,
     },
     categoryText: {
         fontSize: 14,
         color: '#8E8E93',
     },
     categoryTextSelected: {
-        color: '#FFFFFF',
+        color: '#000',
         fontWeight: '600',
     },
     buttonContainer: {
@@ -342,7 +344,7 @@ const styles = StyleSheet.create({
         backgroundColor: '#3A3A3C',
     },
     buttonNext: {
-        backgroundColor: '#0F6FFF',
+        backgroundColor: Colors.blue,
         marginHorizontal: 4,
     },
     buttonAdd: {
@@ -369,7 +371,7 @@ const styles = StyleSheet.create({
     },
     addSubItemText: {
         fontSize: 24,
-        color: '#0F6FFF',
+        color: Colors.textPrimary,
         marginTop: -2,
     },
     subItemsList: {
