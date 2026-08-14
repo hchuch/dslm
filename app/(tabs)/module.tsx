@@ -446,7 +446,7 @@ export default function ModuleScreen() {
                                   )}
                                 </View>
                                 <View style={styles.ctbSizeBadge}>
-                                  <ThemedText style={styles.ctbSizeText}>{ctb.size}m³</ThemedText>
+                                  <ThemedText style={styles.ctbSizeText}>{ctb.size} m³</ThemedText>
                                 </View>
                               </View>
 

@@ -642,7 +642,7 @@ export default function ShipmentScreen() {
                                                 <View style={styles.editRow}>
                                                     <ThemedText style={styles.editLabel}>Size</ThemedText>
                                                     <View style={styles.sizeRowSmall}>
-                                                        {[0.5, 1.0, 2.0, 4.0].map((size) => (
+                                                        {[0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0].map((size) => (
                                                             <Pressable
                                                                 key={size}
                                                                 style={[styles.sizeOptionSmall, editCtbSize === size && styles.sizeOptionSelected]}
@@ -852,7 +852,7 @@ export default function ShipmentScreen() {
                                 <View style={styles.formRow}>
                                     <ThemedText style={styles.label}>Size (m³)</ThemedText>
                                     <View style={styles.sizeRow}>
-                                        {[0.5, 1.0, 2.0, 4.0].map((size) => (
+                                        {[0.5, 1.0, 2.0, 4.0, 6.0, 8.0, 10.0].map((size) => (
                                             <Pressable
                                                 key={size}
                                                 style={[styles.sizeOption, newCtbSize === size && styles.sizeOptionSelected]}

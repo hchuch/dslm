@@ -147,6 +147,7 @@ export async function fullSync(): Promise<SyncResult> {
       ctbs: any[];
       items: any[];
       historyEntries: any[];
+      shipments: any[];
       currentVersion: number;
     }>('/api/sync/full');
 
@@ -380,6 +381,18 @@ async function applyServerChange(change: {
     case 'ItemHistoryEntry':
       await bulkImportData({ historyEntries: [change.changeData] });
       break;
+
+    case 'Shipment':
+      if (change.operation === 'delete') {
+        // Soft-deleted on server, skip locally
+      } else {
+        await bulkImportData({ shipments: [change.changeData] });
+      }
+      break;
+
+    case 'WasteItem':
+      // Tracked client-side only
+      break;
   }
 }
 
@@ -411,8 +424,15 @@ export function startSyncPolling(intervalMs: number = 30000): void {
   stopSyncPolling();
 
   pollInterval = setInterval(async () => {
-    if (syncStatus.isOnline && !syncStatus.isSyncing) {
+    // Always check online status, even when offline, so we detect reconnection
+    const isOnline = await checkOnlineStatus();
+
+    if (isOnline && !syncStatus.isSyncing) {
       await sync();
+    } else if (!isOnline) {
+      // Update pending count so offline banner stays accurate
+      const pendingCount = await getPendingChangesCount();
+      updateStatus({ pendingChangesCount: pendingCount });
     }
   }, intervalMs);
 }

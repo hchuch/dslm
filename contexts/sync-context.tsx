@@ -60,7 +60,7 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
         initialized.current = true;
       }
       await fullSync();
-      startSyncPolling(10000);
+      startSyncPolling(5000);
     })();
 
     return () => {
@@ -77,7 +77,12 @@ export function SyncProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const handleCheckOnline = useCallback(async () => {
-    return checkOnlineStatus();
+    const online = await checkOnlineStatus();
+    // If we just came back online, trigger a sync
+    if (online) {
+      await sync();
+    }
+    return online;
   }, []);
 
   const handleNotifyChange = useCallback(async () => {

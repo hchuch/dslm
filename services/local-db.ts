@@ -577,6 +577,8 @@ function ctbToData(ctb: CTB): Record<string, any> {
   return {
     ctbId: ctb.id,
     rfidTagId: ctb.rfidTag.id,
+    rfidTagType: ctb.rfidTag.type,
+    rfidBatteryLife: ctb.rfidTag.batteryLife,
     size: ctb.size,
     stackId: ctb.location.stack,
     position: ctb.location.position,
@@ -712,6 +714,30 @@ export async function updateItem(itemId: string, updates: Partial<InventoryItem>
   if (updates.consumedDate) {
     sets.push('consumedDate = ?');
     values.push(updates.consumedDate.toISOString());
+  }
+  if (updates.mass !== undefined) {
+    sets.push('mass = ?');
+    values.push(updates.mass);
+  }
+  if (updates.volume !== undefined) {
+    sets.push('volume = ?');
+    values.push(updates.volume);
+  }
+  if (updates.criticality !== undefined) {
+    sets.push('criticality = ?');
+    values.push(updates.criticality);
+  }
+  if (updates.expiryDate !== undefined) {
+    sets.push('expiryDate = ?');
+    values.push(updates.expiryDate ? updates.expiryDate.toISOString() : null);
+  }
+  if (updates.description !== undefined) {
+    sets.push('description = ?');
+    values.push(updates.description);
+  }
+  if (updates.category !== undefined) {
+    sets.push('category = ?');
+    values.push(updates.category);
   }
 
   sets.push('pendingSync = 1', 'localOperation = ?');
@@ -1080,6 +1106,7 @@ export async function bulkImportData(data: {
   ctbs?: any[];
   items?: any[];
   historyEntries?: any[];
+  shipments?: any[];
 }): Promise<void> {
   const db = await getDatabase();
 
@@ -1129,6 +1156,16 @@ export async function bulkImportData(data: {
         `INSERT OR REPLACE INTO itemHistory (id, itemId, timestamp, action, userId, fromStackId, fromPosition, fromLayer, fromPath, toStackId, toPosition, toLayer, toPath, notes, timeTaken, syncVersion)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [entry.id, entry.itemId, entry.timestamp, entry.action, entry.userId, entry.fromStackId, entry.fromPosition, entry.fromLayer, entry.fromPath, entry.toStackId, entry.toPosition, entry.toLayer, entry.toPath, entry.notes, entry.timeTaken, entry.syncVersion]
+      );
+    }
+  }
+
+  if (data.shipments) {
+    for (const s of data.shipments) {
+      await db.runAsync(
+        `INSERT OR REPLACE INTO shipments (id, manifestId, destination, priority, notes, status, launchedAt, deliveredAt, receivedAt, syncVersion, deletedAt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [s.id, s.manifestId, s.destination, s.priority, s.notes, s.status, s.launchedAt, s.deliveredAt, s.receivedAt, s.syncVersion, s.deletedAt]
       );
     }
   }

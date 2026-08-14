@@ -137,6 +137,8 @@ export interface InventoryItem {
   subItems?: InventoryItem[];
 }
 
+export type DiscrepancyType = "wrong-quantity" | "missing" | "damaged" | "wrong-item";
+
 export interface ItemHistoryEntry {
   timestamp: Date;
   action:
@@ -147,7 +149,9 @@ export interface ItemHistoryEntry {
     | "inspected"
     | "relocated"
     | "marked-waste"
-    | "nfc-assigned";
+    | "nfc-assigned"
+    | "edited"
+    | "discrepancy";
   userId?: string;
   fromLocation?: Location;
   toLocation?: Location;

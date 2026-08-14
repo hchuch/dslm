@@ -7,15 +7,19 @@ import { CTBViewer } from '../../components/ctb-viewer';
 import { ThemedText } from '../../components/themed-text';
 import { ThemedView } from '../../components/themed-view';
 import { Colors } from '../../constants/colors';
+import { useAuth } from '../../contexts/auth-context';
+import { useDialog } from '../../hooks/use-dialog';
 import { useInventory } from '../../hooks/use-inventory';
 import type { CTB, InventoryItem } from '../../types/dslm';
 
-const MISSION_WASTE_BUDGET_L = 240; // liters
+const MISSION_WASTE_BUDGET_M3 = 0.240; // m³
 
 type FilterMode = 'all' | 'waste' | 'consumed';
 
 export default function WasteScreen() {
-  const { inventoryItems, wasteItems, getWasteVolume, findCTBById } = useInventory();
+  const { inventoryItems, wasteItems, getWasteVolume, restoreFromWaste, findCTBById } = useInventory();
+  const { user } = useAuth();
+  const { showDialog } = useDialog();
   const [filter, setFilter] = useState<FilterMode>('all');
   const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
   const [selectedItem, setSelectedItem] = useState<InventoryItem | null>(null);
@@ -40,8 +44,8 @@ export default function WasteScreen() {
     [wasteAndConsumedItems]
   );
 
-  const totalWasteVolumeL = useMemo(() => getWasteVolume() * 1000, [getWasteVolume]);
-  const capacityPercent = Math.min((totalWasteVolumeL / MISSION_WASTE_BUDGET_L) * 100, 100);
+  const totalWasteVolumeM3 = useMemo(() => getWasteVolume(), [getWasteVolume]);
+  const capacityPercent = Math.min((totalWasteVolumeM3 / MISSION_WASTE_BUDGET_M3) * 100, 100);
   const isOverBudget = capacityPercent > 80;
 
   const disposalBreakdown = useMemo(() => {
@@ -51,6 +55,20 @@ export default function WasteScreen() {
     }
     return counts;
   }, [wasteItems]);
+
+  const handleRestore = (item: InventoryItem) => {
+    showDialog(
+      'Restore Item',
+      `Remove "${item.name}" from waste and return to stock?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Restore',
+          onPress: () => restoreFromWaste(item.id, user?.id),
+        },
+      ],
+    );
+  };
 
   const handleItemPress = (item: InventoryItem) => {
     const ctb = findCTBById(item.ctbId);
@@ -74,7 +92,7 @@ export default function WasteScreen() {
           <View style={styles.summaryRow}>
             <View style={[styles.summaryCard, styles.summaryCardWaste]}>
               <ThemedText style={styles.summaryValue}>
-                {totalWasteVolumeL.toFixed(1)}L
+                {totalWasteVolumeM3.toFixed(3)} m³
               </ThemedText>
               <ThemedText style={styles.summaryLabel}>Waste Volume</ThemedText>
             </View>
@@ -109,7 +127,7 @@ export default function WasteScreen() {
               />
             </View>
             <ThemedText style={styles.capacitySubtext}>
-              {totalWasteVolumeL.toFixed(1)}L / {MISSION_WASTE_BUDGET_L}L
+              {totalWasteVolumeM3.toFixed(3)} / {MISSION_WASTE_BUDGET_M3} m³
             </ThemedText>
           </View>
 
@@ -166,22 +184,33 @@ export default function WasteScreen() {
                       </ThemedText>
                     </View>
                     <View style={styles.itemRight}>
-                      <View style={[
-                        styles.statusBadge,
-                        item.status === 'waste'
-                          ? { backgroundColor: 'rgba(239, 68, 68, 0.15)' }
-                          : { backgroundColor: 'rgba(255, 214, 10, 0.15)' },
-                      ]}>
-                        <ThemedText style={[
-                          styles.statusBadgeText,
-                          { color: item.status === 'waste' ? Colors.error : Colors.warning },
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={[
+                          styles.statusBadge,
+                          item.status === 'waste'
+                            ? { backgroundColor: 'rgba(239, 68, 68, 0.15)' }
+                            : { backgroundColor: 'rgba(255, 214, 10, 0.15)' },
                         ]}>
-                          {item.status === 'waste' ? 'Waste' : 'Used'}
-                        </ThemedText>
+                          <ThemedText style={[
+                            styles.statusBadgeText,
+                            { color: item.status === 'waste' ? Colors.error : Colors.warning },
+                          ]}>
+                            {item.status === 'waste' ? 'Waste' : 'Used'}
+                          </ThemedText>
+                        </View>
+                        {item.status === 'waste' && (
+                          <Pressable
+                            onPress={(e) => { e.stopPropagation(); handleRestore(item); }}
+                            style={styles.restoreBtn}
+                            hitSlop={8}
+                          >
+                            <Ionicons name="arrow-undo" size={16} color={Colors.blue} />
+                          </Pressable>
+                        )}
                       </View>
                       {wasteInfo && (
                         <ThemedText style={styles.volumeText}>
-                          {(wasteInfo.wasteVolume * 1000).toFixed(1)}L
+                          {wasteInfo.wasteVolume.toFixed(3)} m³
                         </ThemedText>
                       )}
                     </View>
@@ -425,6 +454,14 @@ const styles = StyleSheet.create({
   volumeText: {
     fontSize: 11,
     color: Colors.textSecondary,
+  },
+  restoreBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: Colors.blueGlow,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   disposalSection: {
     backgroundColor: Colors.surface,

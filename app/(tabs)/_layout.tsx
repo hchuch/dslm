@@ -26,7 +26,7 @@ export default function TabLayout() {
           sceneStyle: {
             backgroundColor: Colors.background,
           },
-          animation: 'shift',
+          animation: 'fade',
           lazy: true,
         }}>
         <Tabs.Screen

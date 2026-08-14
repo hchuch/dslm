@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { useInventory } from '../hooks/use-inventory';
 import { useDialog } from '../hooks/use-dialog';
@@ -19,18 +19,28 @@ const EXPIRY_REQUIRED_CATEGORIES: ItemCategory[] = ['food', 'medical'];
 export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: AddItemModalProps) {
     const { addItem } = useInventory();
     const { showDialog } = useDialog();
+    const nameRef = useRef('');
     const [name, setName] = useState('');
     const [category, setCategory] = useState<ItemCategory>('misc');
     const [quantity, setQuantity] = useState('1');
     const [mass, setMass] = useState('1.0');
+    const [volume, setVolume] = useState('0.001');
+    const [criticality, setCriticality] = useState<InventoryItem['criticality']>('medium');
     const [expiryDate, setExpiryDate] = useState('');
     const [subItems, setSubItems] = useState<string[]>([]);
     const [subItemName, setSubItemName] = useState('');
 
     const requiresExpiry = EXPIRY_REQUIRED_CATEGORIES.includes(category);
 
+    const updateName = (value: string) => {
+        nameRef.current = value;
+        setName(value);
+    };
+
     const handleAdd = (keepOpen = false) => {
-        if (!name) {
+        const currentName = nameRef.current;
+
+        if (!currentName) {
             showDialog('Required', 'Please enter an item name.');
             return;
         }
@@ -51,7 +61,7 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
 
         const newItem: InventoryItem = {
             id: `ITEM-${Date.now()}`,
-            name,
+            name: currentName,
             description: 'User added item',
             category,
             status: 'incoming',
@@ -63,11 +73,11 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
             ctbId: targetCtbId || 'CTB-USER',
             location: { stack: 'INCOMING' as any, position: 0, layer: 0, path: 'INCOMING' },
             mass: parseFloat(mass) || 1.0,
-            volume: 0.1,
+            volume: parseFloat(volume) || 0.001,
             quantity: parseInt(quantity) || 1,
             loadedDate: new Date(),
             expiryDate: parsedExpiryDate,
-            criticality: 'low',
+            criticality,
 
             history: [],
             subItems: subItems.map((subName, index) => ({
@@ -92,9 +102,11 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
         } else {
             addItem(newItem);
         }
-        setName('');
+        updateName('');
         setQuantity('1');
         setMass('1.0');
+        setVolume('0.001');
+        setCriticality('medium');
         setExpiryDate('');
         setSubItems([]);
         setSubItemName('');
@@ -133,12 +145,12 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
                             placeholder="Enter item name"
                             placeholderTextColor="#666"
                             value={name}
-                            onChangeText={setName}
+                            onChangeText={updateName}
                         />
 
                         <ThemedText style={styles.label}>Category</ThemedText>
                         <View style={styles.categoryContainer}>
-                            {(['food', 'medical', 'spare-parts', 'misc'] as ItemCategory[]).map((cat) => (
+                            {(['food', 'water', 'medical', 'hygiene', 'clothing', 'scientific-equipment', 'spare-parts', 'lab-equipment', 'lunar-equipment', 'misc'] as ItemCategory[]).map((cat) => (
                                 <Pressable
                                     key={cat}
                                     style={[
@@ -176,6 +188,41 @@ export default function AddItemModal({ visible, onClose, onAdd, targetCtbId }: A
                             value={mass}
                             onChangeText={setMass}
                         />
+
+                        <ThemedText style={styles.label}>Volume (m³)</ThemedText>
+                        <TextInput
+                            style={styles.input}
+                            placeholder="0.001"
+                            placeholderTextColor="#666"
+                            keyboardType="numeric"
+                            value={volume}
+                            onChangeText={setVolume}
+                        />
+
+                        <ThemedText style={styles.label}>Criticality</ThemedText>
+                        <View style={styles.categoryContainer}>
+                            {(['low', 'medium', 'high', 'critical'] as InventoryItem['criticality'][]).map((level) => (
+                                <Pressable
+                                    key={level}
+                                    style={[
+                                        styles.categoryChip,
+                                        criticality === level && styles.criticalitySelected,
+                                        criticality === level && level === 'critical' && { backgroundColor: '#EF4444', borderColor: '#EF4444' },
+                                        criticality === level && level === 'high' && { backgroundColor: '#F59E0B', borderColor: '#F59E0B' },
+                                        criticality === level && level === 'medium' && { backgroundColor: Colors.blue, borderColor: Colors.blue },
+                                        criticality === level && level === 'low' && { backgroundColor: '#10B981', borderColor: '#10B981' },
+                                    ]}
+                                    onPress={() => setCriticality(level)}
+                                >
+                                    <ThemedText style={[
+                                        styles.categoryText,
+                                        criticality === level && { color: '#000', fontWeight: '600' },
+                                    ]}>
+                                        {level}
+                                    </ThemedText>
+                                </Pressable>
+                            ))}
+                        </View>
 
                         {requiresExpiry ? (
                             <>
@@ -315,6 +362,9 @@ const styles = StyleSheet.create({
     categoryChipSelected: {
         backgroundColor: Colors.blue,
         borderColor: Colors.blue,
+    },
+    criticalitySelected: {
+        borderWidth: 1,
     },
     categoryText: {
         fontSize: 14,

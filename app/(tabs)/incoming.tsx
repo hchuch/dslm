@@ -13,12 +13,31 @@ import { useInventory } from '../../hooks/use-inventory';
 import type { CTB } from '../../types/dslm';
 
 export default function IncomingScreen() {
-  const { getIncomingCTBs, receiveCTB } = useInventory();
+  const { getIncomingCTBs, receiveCTB, shipments, inventoryItems } = useInventory();
   const { user } = useAuth();
   const incomingCTBs = useMemo(() => getIncomingCTBs(), [getIncomingCTBs]);
   const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
   const [selectedCTBVisible, setSelectedCTBVisible] = useState(false);
   const { showDialog } = useDialog();
+
+  const summaryData = useMemo(() => {
+    const totalMass = incomingCTBs.reduce((sum, ctb) => sum + ctb.mass, 0);
+    const totalItems = incomingCTBs.reduce((sum, ctb) => sum + ctb.items.length, 0);
+    return { totalMass, totalItems };
+  }, [incomingCTBs]);
+
+  const inTransitShipments = useMemo(() => {
+    return shipments.filter(s => s.status === 'in-transit' || s.status === 'launched');
+  }, [shipments]);
+
+  const lastReceivedTimestamp = useMemo(() => {
+    const deliveredDates = inventoryItems
+      .filter(item => item.status === 'stock' && item.deliveredDate)
+      .map(item => new Date(item.deliveredDate!).getTime())
+      .filter(t => !isNaN(t));
+    if (deliveredDates.length === 0) return null;
+    return new Date(Math.max(...deliveredDates));
+  }, [inventoryItems]);
 
   const handleReceiveCTB = (ctbId: string) => {
     const ctb = incomingCTBs.find(c => c.id === ctbId);
@@ -54,6 +73,60 @@ export default function IncomingScreen() {
         </View>
 
         <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
+          <View style={styles.summaryHeader}>
+            <View style={styles.summaryItem}>
+              <ThemedText style={styles.summaryValue}>{incomingCTBs.length}</ThemedText>
+              <ThemedText style={styles.summaryLabel}>CTBs</ThemedText>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <ThemedText style={styles.summaryValue}>{summaryData.totalMass.toFixed(1)}</ThemedText>
+              <ThemedText style={styles.summaryLabel}>kg Total</ThemedText>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryItem}>
+              <ThemedText style={styles.summaryValue}>{summaryData.totalItems}</ThemedText>
+              <ThemedText style={styles.summaryLabel}>Items</ThemedText>
+            </View>
+          </View>
+
+          {lastReceivedTimestamp && (
+            <View style={styles.lastReceivedRow}>
+              <Ionicons name="checkmark-circle" size={14} color={Colors.success} />
+              <ThemedText style={styles.lastReceivedText}>
+                Last received: {lastReceivedTimestamp.toLocaleDateString()} {lastReceivedTimestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </ThemedText>
+            </View>
+          )}
+
+          {inTransitShipments.length > 0 && (
+            <View style={styles.enRouteSection}>
+              {inTransitShipments.map(shipment => (
+                <View key={shipment.id} style={styles.enRouteCard}>
+                  <View style={styles.enRouteIconWrap}>
+                    <Ionicons name="rocket-outline" size={22} color={Colors.warning} />
+                  </View>
+                  <View style={styles.enRouteContent}>
+                    <ThemedText style={styles.enRouteTitle}>Shipment En Route</ThemedText>
+                    <ThemedText style={styles.enRouteManifest}>{shipment.manifestId}</ThemedText>
+                    <View style={styles.enRouteDetails}>
+                      <ThemedText style={styles.enRouteDetail}>{shipment.ctbIds.length} CTBs</ThemedText>
+                      <ThemedText style={styles.enRouteDot}>{'\u00B7'}</ThemedText>
+                      <ThemedText style={styles.enRouteDetail}>{shipment.totalMass.toFixed(1)} kg</ThemedText>
+                      <ThemedText style={styles.enRouteDot}>{'\u00B7'}</ThemedText>
+                      <ThemedText style={styles.enRouteDetail}>{shipment.priority}</ThemedText>
+                    </View>
+                  </View>
+                  <View style={styles.enRouteStatusBadge}>
+                    <ThemedText style={styles.enRouteStatusText}>
+                      {shipment.status === 'in-transit' ? 'In Transit' : 'Launched'}
+                    </ThemedText>
+                  </View>
+                </View>
+              ))}
+            </View>
+          )}
+
           {incomingCTBs.length === 0 ? (
             <ThemedView style={styles.emptyState}>
               <Ionicons name="file-tray-outline" size={60} color="#666" style={{ marginBottom: 16, opacity: 0.5 }} />
@@ -301,5 +374,109 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     opacity: 0.7,
+  },
+  summaryHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-around',
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+    marginBottom: 12,
+  },
+  summaryItem: {
+    alignItems: 'center',
+    flex: 1,
+  },
+  summaryValue: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  summaryLabel: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  summaryDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: Colors.border,
+  },
+  lastReceivedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 12,
+    paddingHorizontal: 4,
+  },
+  lastReceivedText: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+  },
+  enRouteSection: {
+    gap: 10,
+    marginBottom: 16,
+  },
+  enRouteCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.surface,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 214, 10, 0.2)',
+    padding: 14,
+  },
+  enRouteIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 214, 10, 0.1)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 12,
+  },
+  enRouteContent: {
+    flex: 1,
+  },
+  enRouteTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+  },
+  enRouteManifest: {
+    fontSize: 12,
+    color: Colors.warning,
+    fontWeight: '600',
+    marginTop: 1,
+  },
+  enRouteDetails: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+    gap: 4,
+  },
+  enRouteDetail: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+  },
+  enRouteDot: {
+    fontSize: 11,
+    color: Colors.textTertiary,
+  },
+  enRouteStatusBadge: {
+    backgroundColor: 'rgba(255, 214, 10, 0.15)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginLeft: 8,
+  },
+  enRouteStatusText: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: Colors.warning,
   },
 });

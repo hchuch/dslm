@@ -10,7 +10,7 @@ const log = createLogger('sync');
 
 // Flatten nested location object to Prisma columns
 function flattenData(data: any): any {
-  const { location, lastAccessedDate, deliveredDate, ...rest } = data;
+  const { location, lastAccessedDate, deliveredDate, rfidTag, previousLocation, category, consumedDate, expiryDate, loadedDate, ...rest } = data;
   const flat: any = { ...rest };
   if (location) {
     if (location.stack) flat.stackId = location.stack;
@@ -18,8 +18,31 @@ function flattenData(data: any): any {
     if (location.layer !== undefined) flat.layer = location.layer;
     if (location.path) flat.locationPath = location.path;
   }
+  if (rfidTag) {
+    if (rfidTag.type) flat.rfidTagType = rfidTag.type;
+    if (rfidTag.id) flat.rfidTagId = rfidTag.id;
+    if (rfidTag.batteryLife !== undefined) flat.rfidBatteryLife = rfidTag.batteryLife;
+  }
+  // Map client field names to server field names
+  if (category) flat.categoryName = category;
+  // Handle date fields
   if (lastAccessedDate) flat.lastAccessedDate = new Date(lastAccessedDate);
   if (deliveredDate) flat.deliveredDate = new Date(deliveredDate);
+  if (consumedDate) flat.consumedDate = new Date(consumedDate);
+  if (expiryDate) flat.expiryDate = new Date(expiryDate);
+  if (loadedDate) flat.loadedDate = new Date(loadedDate);
+  // Strip fields Prisma doesn't know about
+  delete flat.pendingSync;
+  delete flat.localOperation;
+  delete flat.isOutside;
+  delete flat.history;
+  delete flat.subItems;
+  delete flat.foodData;
+  delete flat.barcode;
+  delete flat.manufacturer;
+  delete flat.partNumber;
+  delete flat.serialNumber;
+  if (previousLocation !== undefined) delete flat.previousLocation;
   return flat;
 }
 
@@ -72,6 +95,7 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
 
     for (const change of changes) {
       const { tableName, operation, localId, data } = change;
+      let changeLogData = data; // may be replaced with server-format record
 
       try {
         let serverId: string | undefined;
@@ -158,6 +182,11 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
                 data: { deletedAt: new Date(), syncVersion: recordSyncVersion },
               });
             }
+            // Re-read the actual record for changeLog so other devices get server-format data
+            if (recordSyncVersion && operation !== 'delete') {
+              const record = await prisma.cTB.findFirst({ where: { OR: [{ id: serverId || localId }, { ctbId: serverId || localId }] } });
+              if (record) changeLogData = record as any;
+            }
             break;
           }
 
@@ -171,7 +200,7 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
                   itemId: data.itemId,
                   name: data.name,
                   description: data.description || '',
-                  categoryName: data.categoryName || 'misc',
+                  categoryName: data.categoryName || data.category || 'misc',
                   status: data.status || 'incoming',
                   ctbId: data.ctbId,
                   stackId: data.stackId || 'INCOMING',
@@ -188,7 +217,7 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
                 update: {
                   name: data.name,
                   description: data.description,
-                  categoryName: data.categoryName,
+                  categoryName: data.categoryName || data.category,
                   status: data.status,
                   ctbId: data.ctbId,
                   mass: data.mass,
@@ -212,6 +241,11 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
                 where: { OR: [{ id: localId }, { itemId: localId }] },
                 data: { deletedAt: new Date(), syncVersion: recordSyncVersion },
               });
+            }
+            // Re-read the actual record for changeLog so other devices get server-format data
+            if (recordSyncVersion && operation !== 'delete') {
+              const record = await prisma.inventoryItem.findFirst({ where: { OR: [{ id: serverId || localId }, { itemId: serverId || localId }] } });
+              if (record) changeLogData = record as any;
             }
             break;
           }
@@ -242,6 +276,13 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
             break;
           }
 
+          case 'WasteItem': {
+            // WasteItem tracked client-side only (no Prisma model); acknowledge to clear pending queue
+            recordSyncVersion = await incrementSyncVersion();
+            serverId = localId;
+            break;
+          }
+
           case 'Shipment': {
             if (operation === 'create') {
               const syncVersion = await incrementSyncVersion();
@@ -267,9 +308,17 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
               serverId = shipment.id;
             } else if (operation === 'update') {
               recordSyncVersion = await incrementSyncVersion();
+              // Strip client-only fields before passing to Prisma
+              const { pendingSync, localOperation, ctbIds, totalMass, itemCount, createdAt, ...shipmentData } = data;
               await prisma.shipment.updateMany({
                 where: { OR: [{ id: localId }, { manifestId: localId }] },
-                data: { ...data, syncVersion: recordSyncVersion },
+                data: {
+                  ...shipmentData,
+                  launchedAt: shipmentData.launchedAt ? new Date(shipmentData.launchedAt) : undefined,
+                  deliveredAt: shipmentData.deliveredAt ? new Date(shipmentData.deliveredAt) : undefined,
+                  receivedAt: shipmentData.receivedAt ? new Date(shipmentData.receivedAt) : undefined,
+                  syncVersion: recordSyncVersion,
+                },
               });
             } else if (operation === 'delete') {
               recordSyncVersion = await incrementSyncVersion();
@@ -277,6 +326,11 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
                 where: { OR: [{ id: localId }, { manifestId: localId }] },
                 data: { deletedAt: new Date(), syncVersion: recordSyncVersion },
               });
+            }
+            // Re-read for changeLog
+            if (recordSyncVersion && operation !== 'delete') {
+              const record = await prisma.shipment.findFirst({ where: { OR: [{ id: serverId || localId }, { manifestId: serverId || localId }] } });
+              if (record) changeLogData = record as any;
             }
             break;
           }
@@ -293,7 +347,7 @@ router.post('/push', authMiddleware, async (req: AuthenticatedRequest, res: Resp
               tableName,
               recordId: serverId || localId,
               operation,
-              changeData: JSON.stringify(data),
+              changeData: JSON.stringify(changeLogData),
               syncVersion: recordSyncVersion,
             },
           });

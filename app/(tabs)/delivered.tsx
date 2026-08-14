@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useMemo, useState } from 'react';
-import { Pressable, ScrollView, StyleSheet, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
 import { CTBViewer } from '../../components/ctb-viewer';
@@ -13,6 +13,7 @@ import type { CTB } from '../../types/dslm';
 export default function DeliveredScreen() {
     const { ctbs, inventoryItems } = useInventory();
     const [selectedCTB, setSelectedCTB] = useState<CTB | null>(null);
+    const [searchQuery, setSearchQuery] = useState('');
 
     const deliveredCTBs = useMemo(() => {
         const stockItemCtbIds = new Set(
@@ -20,6 +21,33 @@ export default function DeliveredScreen() {
         );
         return ctbs.filter(ctb => stockItemCtbIds.has(ctb.id));
     }, [ctbs, inventoryItems]);
+
+    const stockItems = useMemo(() => {
+        return inventoryItems.filter(i => i.status === 'stock');
+    }, [inventoryItems]);
+
+    const totalMass = useMemo(() => {
+        return deliveredCTBs.reduce((sum, ctb) => sum + ctb.mass, 0);
+    }, [deliveredCTBs]);
+
+    const filteredCTBs = useMemo(() => {
+        if (!searchQuery.trim()) return deliveredCTBs;
+        const q = searchQuery.toLowerCase().trim();
+        return deliveredCTBs.filter(ctb => {
+            if (ctb.id.toLowerCase().includes(q)) return true;
+            const ctbItemNames = inventoryItems
+                .filter(i => i.ctbId === ctb.id && i.status === 'stock')
+                .some(i => i.name.toLowerCase().includes(q));
+            return ctbItemNames;
+        });
+    }, [deliveredCTBs, searchQuery, inventoryItems]);
+
+    const formatDate = (date: Date | string | undefined): string | null => {
+        if (!date) return null;
+        const d = typeof date === 'string' ? new Date(date) : date;
+        if (isNaN(d.getTime())) return null;
+        return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    };
 
     return (
         <ThemedView style={styles.container}>
@@ -33,18 +61,51 @@ export default function DeliveredScreen() {
                     </View>
                 </View>
 
+                <View style={styles.summaryRow}>
+                    <View style={styles.summaryCard}>
+                        <ThemedText style={styles.summaryValue}>{deliveredCTBs.length}</ThemedText>
+                        <ThemedText style={styles.summaryLabel}>CTBs</ThemedText>
+                    </View>
+                    <View style={styles.summaryCard}>
+                        <ThemedText style={styles.summaryValue}>{totalMass.toFixed(1)}</ThemedText>
+                        <ThemedText style={styles.summaryLabel}>Total kg</ThemedText>
+                    </View>
+                    <View style={styles.summaryCard}>
+                        <ThemedText style={styles.summaryValue}>{stockItems.length}</ThemedText>
+                        <ThemedText style={styles.summaryLabel}>In Stock</ThemedText>
+                    </View>
+                </View>
+
+                <View style={styles.searchContainer}>
+                    <Ionicons name="search" size={18} color={Colors.textSecondary} />
+                    <TextInput
+                        style={styles.searchInput}
+                        placeholder="Filter by CTB ID or item name..."
+                        placeholderTextColor={Colors.textTertiary}
+                        value={searchQuery}
+                        onChangeText={setSearchQuery}
+                    />
+                    {searchQuery.length > 0 && (
+                        <Pressable onPress={() => setSearchQuery('')} hitSlop={8}>
+                            <Ionicons name="close-circle" size={18} color={Colors.textSecondary} />
+                        </Pressable>
+                    )}
+                </View>
+
                 <ScrollView style={{ flex: 1 }} contentContainerStyle={styles.contentContainer} showsVerticalScrollIndicator={false}>
-                    {deliveredCTBs.length === 0 ? (
+                    {filteredCTBs.length === 0 ? (
                         <ThemedView style={styles.emptyState}>
-                            <Ionicons name="checkmark-circle-outline" size={60} color={Colors.textTertiary} style={{ marginBottom: 16, opacity: 0.5 }} />
-                            <ThemedText style={styles.emptyTitle}>No Delivered Cargo</ThemedText>
+                            <Ionicons name={searchQuery ? "search-outline" : "checkmark-circle-outline"} size={60} color={Colors.textTertiary} style={{ marginBottom: 16, opacity: 0.5 }} />
+                            <ThemedText style={styles.emptyTitle}>{searchQuery ? 'No Results' : 'No Delivered Cargo'}</ThemedText>
                             <ThemedText style={styles.emptyText}>
-                                No Cargo Transfer Bags have been processed yet.
+                                {searchQuery
+                                    ? `No CTBs match "${searchQuery}".`
+                                    : 'No Cargo Transfer Bags have been processed yet.'}
                             </ThemedText>
                         </ThemedView>
                     ) : (
                         <View style={styles.gridContainer}>
-                            {deliveredCTBs.map((ctb) => (
+                            {filteredCTBs.map((ctb) => (
                                 <Pressable 
                                     key={ctb.id} 
                                     style={({ pressed }) => [styles.card, pressed && { opacity: 0.8 }]}
@@ -64,6 +125,12 @@ export default function DeliveredScreen() {
                                         <ThemedText style={styles.ctbLocation} numberOfLines={1}>
                                             Stored: {ctb.location.path}
                                         </ThemedText>
+
+                                        {formatDate(ctb.lastAccessedDate ?? ctb.loadedDate) && (
+                                            <ThemedText style={styles.deliveryDate} numberOfLines={1}>
+                                                {formatDate(ctb.lastAccessedDate ?? ctb.loadedDate)}
+                                            </ThemedText>
+                                        )}
 
                                         <View style={styles.statsRow}>
                                             <ThemedText style={styles.statText}>
@@ -119,6 +186,49 @@ const styles = StyleSheet.create({
         fontSize: 14,
         color: Colors.textSecondary,
         marginBottom: 4,
+    },
+    summaryRow: {
+        flexDirection: 'row',
+        paddingHorizontal: 16,
+        paddingTop: 12,
+        gap: 10,
+    },
+    summaryCard: {
+        flex: 1,
+        backgroundColor: Colors.surface,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        paddingVertical: 10,
+        alignItems: 'center',
+    },
+    summaryValue: {
+        fontSize: 20,
+        fontWeight: '700',
+        color: Colors.textPrimary,
+    },
+    summaryLabel: {
+        fontSize: 11,
+        color: Colors.textSecondary,
+        marginTop: 2,
+    },
+    searchContainer: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        backgroundColor: Colors.surface,
+        borderRadius: 10,
+        borderWidth: 1,
+        borderColor: Colors.border,
+        marginHorizontal: 16,
+        marginTop: 12,
+        paddingHorizontal: 12,
+        height: 40,
+    },
+    searchInput: {
+        flex: 1,
+        marginLeft: 8,
+        fontSize: 14,
+        color: Colors.textPrimary,
     },
     contentContainer: {
         paddingBottom: 24,
@@ -195,6 +305,11 @@ const styles = StyleSheet.create({
     ctbLocation: {
         fontSize: 11,
         color: Colors.textSecondary,
+        marginBottom: 4,
+    },
+    deliveryDate: {
+        fontSize: 10,
+        color: Colors.textTertiary,
         marginBottom: 8,
     },
     statsRow: {

@@ -28,7 +28,7 @@ export const NESTING_RULES: NestingRule[] = [
   { parentSize: 10.0, allowedChildSizes: [8.0, 6.0, 4.0, 2.0, 1.0, 0.5], maxChildren: 3 },
 ];
 
-// Volume specifications for each CTB size (m^3)
+// Volume specifications for each CTB size (m³)
 // Per NASA specs: packed = external storage volume, unpacked = internal capacity
 export const CTB_VOLUME_SPECS: Record<CTBSize, { packed: number; unpacked: number }> = {
   0.5:  { packed: 0.014, unpacked: 0.012 },
@@ -154,7 +154,7 @@ export async function validateNesting(
   if (childPackedVolume > availableVolume) {
     return {
       valid: false,
-      error: `Insufficient space: child needs ${(childPackedVolume * 1000).toFixed(1)}L but only ${(availableVolume * 1000).toFixed(1)}L available`,
+      error: `Insufficient space: child needs ${childPackedVolume.toFixed(3)} m³ but only ${availableVolume.toFixed(3)} m³ available`,
     };
   }
 

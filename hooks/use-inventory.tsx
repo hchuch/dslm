@@ -9,6 +9,7 @@ import React, {
 import type {
   CTB,
   CTBSize,
+  DiscrepancyType,
   InventoryItem,
   ItemCategory,
   ItemHistoryEntry,
@@ -76,6 +77,8 @@ type InventoryContextValue = {
     timeTaken?: number,
   ) => Promise<void>;
   updateItemNotes: (itemId: string, notes: string) => Promise<void>;
+  updateItemDetails: (itemId: string, updates: Partial<InventoryItem>, userId?: string) => Promise<void>;
+  reportDiscrepancy: (itemId: string, type: DiscrepancyType, description: string, userId?: string) => Promise<void>;
   updateCTBTag: (ctbId: string, rfidTag: TrackingTag) => Promise<void>;
   deleteItem: (itemId: string) => Promise<void>;
   deleteCTB: (ctbId: string) => Promise<void>;
@@ -95,6 +98,7 @@ type InventoryContextValue = {
   getExpiringItems: (daysAhead: number) => InventoryItem[];
   getImportantItems: () => InventoryItem[];
   getWasteVolume: () => number;
+  restoreFromWaste: (itemId: string, userId?: string) => Promise<void>;
   updateWasteDisposalMethod: (itemId: string, method: "return-earth" | "deep-space" | "recycle") => void;
   reorganizeStack: (stackId: StackId, mode: "manual" | "auto") => void;
   updateStackLayout: (stackId: StackId, newCtbOrder: CTB[]) => void;
@@ -167,7 +171,7 @@ export function canNestCTB(
   if (childPackedVolume > availableVolume) {
     return {
       canNest: false,
-      reason: `Insufficient space: needs ${(childPackedVolume * 1000).toFixed(1)}L, only ${(availableVolume * 1000).toFixed(1)}L available`,
+      reason: `Insufficient space: needs ${childPackedVolume.toFixed(3)} m³, only ${availableVolume.toFixed(3)} m³ available`,
     };
   }
 
@@ -530,7 +534,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
         timestamp: new Date(),
         action: "marked-waste",
         userId,
-        notes: `Marked for waste disposal (${(wasteItem.wasteVolume * 1000).toFixed(1)}L)`,
+        notes: `Marked for waste disposal (${wasteItem.wasteVolume.toFixed(3)} m³)`,
         timeTaken,
       };
 
@@ -565,6 +569,79 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
 
     await pushIfOnline();
   }, []);
+
+  const updateItemDetails = useCallback(
+    async (itemId: string, updates: Partial<InventoryItem>, userId?: string) => {
+      const item = inventoryItems.find(i => i.id === itemId);
+      if (!item) return;
+
+      const changes: string[] = [];
+      if (updates.name !== undefined && updates.name !== item.name) changes.push(`name: ${item.name} → ${updates.name}`);
+      if (updates.quantity !== undefined && updates.quantity !== item.quantity) changes.push(`qty: ${item.quantity} → ${updates.quantity}`);
+      if (updates.mass !== undefined && updates.mass !== item.mass) changes.push(`mass: ${item.mass} kg → ${updates.mass} kg`);
+      if (updates.volume !== undefined && updates.volume !== item.volume) changes.push(`vol: ${item.volume} m³ → ${updates.volume} m³`);
+      if (updates.criticality !== undefined && updates.criticality !== item.criticality) changes.push(`criticality: ${item.criticality} → ${updates.criticality}`);
+      if (updates.description !== undefined && updates.description !== item.description) changes.push(`description updated`);
+      if (updates.category !== undefined && updates.category !== item.category) changes.push(`category: ${item.category} → ${updates.category}`);
+
+      if (changes.length === 0) return;
+
+      const dbUpdates: Record<string, any> = {};
+      if (updates.name !== undefined) dbUpdates.name = updates.name;
+      if (updates.quantity !== undefined) dbUpdates.quantity = updates.quantity;
+      if (updates.mass !== undefined) dbUpdates.mass = updates.mass;
+      if (updates.volume !== undefined) dbUpdates.volume = updates.volume;
+      if (updates.criticality !== undefined) dbUpdates.criticality = updates.criticality;
+      if (updates.expiryDate !== undefined) dbUpdates.expiryDate = updates.expiryDate;
+      if (updates.description !== undefined) dbUpdates.description = updates.description;
+      if (updates.category !== undefined) dbUpdates.category = updates.category;
+
+      await localDb.updateItem(itemId, dbUpdates);
+
+      const historyEntry: ItemHistoryEntry = {
+        timestamp: new Date(),
+        action: "edited",
+        userId,
+        notes: changes.join(', '),
+      };
+      await localDb.createHistoryEntry(itemId, historyEntry);
+
+      setInventoryItems((prev) =>
+        prev.map((i) =>
+          i.id === itemId
+            ? { ...i, ...updates, history: [...i.history, historyEntry] }
+            : i,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [inventoryItems],
+  );
+
+  const reportDiscrepancy = useCallback(
+    async (itemId: string, type: DiscrepancyType, description: string, userId?: string) => {
+      const historyEntry: ItemHistoryEntry = {
+        timestamp: new Date(),
+        action: "discrepancy",
+        userId,
+        notes: `[${type}] ${description}`,
+      };
+
+      await localDb.createHistoryEntry(itemId, historyEntry);
+
+      setInventoryItems((prev) =>
+        prev.map((item) =>
+          item.id === itemId
+            ? { ...item, history: [...item.history, historyEntry] }
+            : item,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [],
+  );
 
   const updateCTBTag = useCallback(async (ctbId: string, rfidTag: TrackingTag) => {
     await localDb.updateCTB(ctbId, { rfidTag });
@@ -747,12 +824,25 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
   const receiveCTB = useCallback(
     async (ctbId: string, userId?: string) => {
       const findFreePosition = (): Location => {
-        for (const stackId of ["S1", "S2", "S3"] as StackId[]) {
-          const ctbsInStack = ctbs.filter((c) => c.location.stack === stackId);
-          const occupiedPositions = new Set(ctbsInStack.map((c) => c.location.position));
+        const ctbToPlace = ctbs.find((c) => c.id === ctbId);
+        const slotsNeeded = ctbToPlace ? Math.max(1, Math.ceil(ctbToPlace.size)) : 1;
 
-          for (let pos = 1; pos <= 16; pos++) {
-            if (!occupiedPositions.has(pos)) {
+        for (const stackId of ["S1", "S2", "S3"] as StackId[]) {
+          const ctbsInStack = ctbs.filter((c) => c.location.stack === stackId && c.id !== ctbId);
+          const occupiedPositions = new Set<number>();
+          for (const c of ctbsInStack) {
+            const slots = Math.max(1, Math.ceil(c.size));
+            for (let p = c.location.position; p < c.location.position + slots; p++) {
+              occupiedPositions.add(p);
+            }
+          }
+
+          for (let pos = 1; pos <= 16 - slotsNeeded + 1; pos++) {
+            let canFit = true;
+            for (let p = pos; p < pos + slotsNeeded; p++) {
+              if (occupiedPositions.has(p)) { canFit = false; break; }
+            }
+            if (canFit) {
               return {
                 stack: stackId,
                 position: pos,
@@ -953,6 +1043,37 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
     [wasteItems],
   );
 
+  const restoreFromWaste = useCallback(
+    async (itemId: string, userId?: string) => {
+      const item = inventoryItems.find((i) => i.id === itemId);
+      if (!item) return;
+
+      await localDb.deleteWasteItem(itemId);
+      setWasteItems((prev) => prev.filter((w) => w.itemId !== itemId));
+
+      const historyEntry: ItemHistoryEntry = {
+        timestamp: new Date(),
+        action: "edited",
+        userId,
+        notes: "Restored from waste — item returned to stock",
+      };
+
+      await localDb.updateItem(itemId, { status: 'stock' });
+      await localDb.createHistoryEntry(itemId, historyEntry);
+
+      setInventoryItems((prev) =>
+        prev.map((i) =>
+          i.id === itemId
+            ? { ...i, status: "stock", history: [...i.history, historyEntry] }
+            : i,
+        ),
+      );
+
+      await pushIfOnline();
+    },
+    [inventoryItems],
+  );
+
   const updateWasteDisposalMethod = useCallback(
     async (itemId: string, method: "return-earth" | "deep-space" | "recycle") => {
       await localDb.updateWasteItemDisposalMethod(itemId, method);
@@ -1049,6 +1170,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       markAsWaste,
       relocateCTB,
       updateItemNotes,
+      updateItemDetails,
+      reportDiscrepancy,
       updateCTBTag,
       deleteItem,
       deleteCTB,
@@ -1068,6 +1191,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       getExpiringItems,
       getImportantItems,
       getWasteVolume,
+      restoreFromWaste,
       updateWasteDisposalMethod,
       reorganizeStack,
       updateStackLayout,
@@ -1098,6 +1222,8 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       markAsWaste,
       relocateCTB,
       updateItemNotes,
+      updateItemDetails,
+      reportDiscrepancy,
       updateCTBTag,
       deleteItem,
       deleteCTB,
@@ -1114,6 +1240,7 @@ export function InventoryProvider({ children }: { children: React.ReactNode }) {
       getExpiringItems,
       getImportantItems,
       getWasteVolume,
+      restoreFromWaste,
       updateWasteDisposalMethod,
       reorganizeStack,
       updateStackLayout,

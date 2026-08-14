@@ -17,9 +17,11 @@ import { useInventory, MAX_NESTING_DEPTH } from "../hooks/use-inventory";
 import { useNFC } from "../hooks/use-nfc";
 import { createHistoryEntry, updateCTB as updateCTBInDb } from "../services/local-db";
 import type { CTB, InventoryItem, Location } from "../types/dslm";
+import { EditItemModal } from "./edit-item-modal";
 import { ItemNotesModal } from "./item-notes-modal";
 import { NFCScannerModal } from "./nfc-scanner-modal";
 import { RelocateItemModal } from "./relocate-item-modal";
+import { ReportDiscrepancyModal } from "./report-discrepancy-modal";
 import { ThemedText } from "./themed-text";
 import { ThemedView } from "./themed-view";
 import { UndoToast } from "./undo-toast";
@@ -52,9 +54,12 @@ export function CTBViewer({
     receiveCTB,
     consumeItem,
     markAsWaste,
+    restoreFromWaste,
     relocateCTB,
     takeOutCTB,
     returnCTB,
+    updateItemDetails,
+    reportDiscrepancy,
     ctbs: allCTBs,
   } = useInventory();
 
@@ -82,6 +87,8 @@ export function CTBViewer({
     data: InventoryItem | CTB;
   } | null>(null);
 
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [showDiscrepancyModal, setShowDiscrepancyModal] = useState(false);
   const [showNFCScanner, setShowNFCScanner] = useState(false);
   const [previousNfcTag, setPreviousNfcTag] = useState<CTB['rfidTag'] | null>(null);
 
@@ -124,7 +131,7 @@ export function CTBViewer({
     if (!selectedItem) return;
     showDialog(
       "Mark as Waste",
-      `Mark "${selectedItem.name}" for waste disposal?\n\nWaste volume: ${((selectedItem.volume * 1.4) * 1000).toFixed(1)}L (1.4x original)`,
+      `Mark "${selectedItem.name}" for waste disposal?\n\nWaste volume: ${(selectedItem.volume * 1.4).toFixed(3)} m³ (1.4x original)`,
       [
         { text: "Cancel", style: "cancel" },
         {
@@ -139,9 +146,46 @@ export function CTBViewer({
     );
   };
 
+  const handleRestoreFromWaste = () => {
+    if (!selectedItem) return;
+    showDialog(
+      "Restore Item",
+      `Remove "${selectedItem.name}" from waste and return to stock?`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Restore",
+          onPress: async () => {
+            await restoreFromWaste(selectedItem.id, user?.id);
+            setSelectedItem({ ...selectedItem, status: "stock" });
+          },
+        },
+      ],
+    );
+  };
+
   const handleSaveNotes = (item: InventoryItem, notes: string) => {
     updateItemNotes(item.id, notes);
     setSelectedItem({ ...item, notes });
+  };
+
+  const handleEditItem = () => {
+    if (selectedItem) setShowEditModal(true);
+  };
+
+  const handleSaveEdit = async (updates: Partial<InventoryItem>) => {
+    if (!selectedItem) return;
+    await updateItemDetails(selectedItem.id, updates, user?.id);
+    setSelectedItem({ ...selectedItem, ...updates });
+  };
+
+  const handleReportDiscrepancy = () => {
+    if (selectedItem) setShowDiscrepancyModal(true);
+  };
+
+  const handleSubmitDiscrepancy = async (type: any, description: string) => {
+    if (!selectedItem) return;
+    await reportDiscrepancy(selectedItem.id, type, description, user?.id);
   };
 
   const handleDeleteItem = () => {
@@ -689,6 +733,47 @@ export function CTBViewer({
             />
           </Pressable>
 
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionButton,
+              pressed && styles.actionButtonPressed,
+              styles.actionButtonSpaced,
+            ]}
+            onPress={handleEditItem}
+          >
+            <View style={styles.actionIcon}>
+              <Ionicons name="create-outline" size={20} color={Colors.blue} />
+            </View>
+            <View style={styles.actionInfo}>
+              <ThemedText style={styles.actionTitle}>Edit Item</ThemedText>
+              <ThemedText style={styles.actionSubtitle}>
+                Modify quantity, mass, volume, etc.
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+          </Pressable>
+
+          <Pressable
+            style={({ pressed }) => [
+              styles.actionButton,
+              styles.actionButtonWarn,
+              pressed && styles.actionButtonPressed,
+              styles.actionButtonSpaced,
+            ]}
+            onPress={handleReportDiscrepancy}
+          >
+            <View style={[styles.actionIcon, styles.actionIconWarn]}>
+              <Ionicons name="flag-outline" size={20} color={Colors.warning} />
+            </View>
+            <View style={styles.actionInfo}>
+              <ThemedText style={styles.actionTitleWarn}>Report Discrepancy</ThemedText>
+              <ThemedText style={styles.actionSubtitle}>
+                Flag wrong count, missing, or damaged
+              </ThemedText>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+          </Pressable>
+
           {(selectedItem.status === "stock" || selectedItem.status === "delivered") && (
             <Pressable
               style={({ pressed }) => [
@@ -728,7 +813,29 @@ export function CTBViewer({
               <View style={styles.actionInfo}>
                 <ThemedText style={styles.actionTitleDanger}>Mark as Waste</ThemedText>
                 <ThemedText style={styles.actionSubtitle}>
-                  Flag for waste disposal ({((selectedItem.volume * 1.4) * 1000).toFixed(1)}L)
+                  Flag for waste disposal ({(selectedItem.volume * 1.4).toFixed(3)} m³)
+                </ThemedText>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
+            </Pressable>
+          )}
+
+          {selectedItem.status === "waste" && (
+            <Pressable
+              style={({ pressed }) => [
+                styles.actionButton,
+                pressed && styles.actionButtonPressed,
+                styles.actionButtonSpaced,
+              ]}
+              onPress={handleRestoreFromWaste}
+            >
+              <View style={[styles.actionIcon, { backgroundColor: Colors.blueGlow }]}>
+                <Ionicons name="arrow-undo" size={20} color={Colors.blue} />
+              </View>
+              <View style={styles.actionInfo}>
+                <ThemedText style={[styles.actionTitle, { color: Colors.blue }]}>Restore from Waste</ThemedText>
+                <ThemedText style={styles.actionSubtitle}>
+                  Return item to stock
                 </ThemedText>
               </View>
               <Ionicons name="chevron-forward" size={20} color={Colors.textTertiary} />
@@ -767,7 +874,7 @@ export function CTBViewer({
   };
 
   const formatVolume = (volumeM3: number): string => {
-    return `${Math.round(volumeM3 * 1000)}L`;
+    return `${volumeM3.toFixed(3)} m³`;
   };
 
   const renderCTBView = () => (
@@ -908,9 +1015,10 @@ export function CTBViewer({
                   { text: "Cancel", style: "cancel" },
                   {
                     text: "Confirm Receipt",
-                    onPress: () => {
-                      receiveCTB(currentCTB.id);
-                      showDialog("Success", `${currentCTB.id} received into inventory`);
+                    onPress: async () => {
+                      await receiveCTB(currentCTB.id);
+                      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                      onClose();
                     }
                   }
                 ]
@@ -1159,6 +1267,20 @@ export function CTBViewer({
           item={selectedItem}
           onClose={() => setShowNotesModal(false)}
           onSave={handleSaveNotes}
+        />
+
+        <EditItemModal
+          visible={showEditModal}
+          item={selectedItem}
+          onClose={() => setShowEditModal(false)}
+          onSave={handleSaveEdit}
+        />
+
+        <ReportDiscrepancyModal
+          visible={showDiscrepancyModal}
+          item={selectedItem}
+          onClose={() => setShowDiscrepancyModal(false)}
+          onReport={handleSubmitDiscrepancy}
         />
 
         <Modal

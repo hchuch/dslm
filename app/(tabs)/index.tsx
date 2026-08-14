@@ -14,6 +14,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { CTBViewer } from "../../components/ctb-viewer";
 import { NFCScannerModal } from "../../components/nfc-scanner-modal";
+import { OfflineBanner } from "../../components/offline-banner";
 import { ThemedText } from "../../components/themed-text";
 import { ThemedView } from "../../components/themed-view";
 import { Colors } from "../../constants/colors";
@@ -45,6 +46,8 @@ export default function HomeScreen() {
   >("ctbs");
 
   const [showNFCScanner, setShowNFCScanner] = useState(false);
+  const [showAllCTBs, setShowAllCTBs] = useState(false);
+  const [showAllItems, setShowAllItems] = useState(false);
   const { showDialog } = useDialog();
 
   const handleNFCScanSuccess = (tag: ScannedTag) => {
@@ -125,6 +128,30 @@ export default function HomeScreen() {
       expiringItems: getExpiringItems(30).length,
     }),
     [inventoryItems, ctbs, incomingCTBs, getExpiringItems],
+  );
+
+  const recentActivity = useMemo(() => {
+    const entries: { item: InventoryItem; entry: InventoryItem["history"][0] }[] = [];
+    for (const item of inventoryItems) {
+      for (const entry of item.history) {
+        entries.push({ item, entry });
+      }
+    }
+    return entries
+      .sort((a, b) => new Date(b.entry.timestamp).getTime() - new Date(a.entry.timestamp).getTime())
+      .slice(0, 5);
+  }, [inventoryItems]);
+
+  const criticalLowStock = useMemo(
+    () =>
+      inventoryItems.filter(
+        (i) =>
+          i.criticality === "critical" &&
+          i.quantity <= 2 &&
+          i.status !== "consumed" &&
+          i.status !== "waste",
+      ),
+    [inventoryItems],
   );
 
   const filteredItems = useMemo(() => {
@@ -301,6 +328,8 @@ export default function HomeScreen() {
           )}
         </View>
 
+        <OfflineBanner />
+
         <ScrollView
           style={{ flex: 1 }}
           contentContainerStyle={styles.content}
@@ -383,6 +412,91 @@ export default function HomeScreen() {
             </Pressable>
           </View>
 
+          {!searchQuery && criticalLowStock.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="warning" size={18} color={Colors.error} />
+                <ThemedText style={styles.sectionTitle}>Low Stock - Critical</ThemedText>
+                <View style={styles.wasteBadge}>
+                  <Text style={styles.wasteBadgeText}>{criticalLowStock.length}</Text>
+                </View>
+              </View>
+              <View style={styles.list}>
+                {criticalLowStock.slice(0, 5).map((item) => (
+                  <Pressable
+                    key={item.id}
+                    style={styles.itemRow}
+                    onPress={() => handleItemPress(item)}
+                  >
+                    <View style={[styles.itemIcon, styles.itemIconCritical]}>
+                      <Ionicons name="alert-circle" size={20} color={Colors.red} />
+                    </View>
+                    <View style={styles.itemInfo}>
+                      <ThemedText numberOfLines={1} style={styles.itemName}>
+                        {item.name}
+                      </ThemedText>
+                      <ThemedText style={styles.itemMeta}>{item.location.path}</ThemedText>
+                    </View>
+                    <View style={styles.itemRight}>
+                      <Text style={[styles.itemQty, { color: Colors.error }]}>
+                        x{item.quantity}
+                      </Text>
+                      <Ionicons name="chevron-forward" size={16} color={Colors.textTertiary} />
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+          )}
+
+          {!searchQuery && recentActivity.length > 0 && (
+            <View style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Ionicons name="time-outline" size={18} color={Colors.blue} />
+                <ThemedText style={styles.sectionTitle}>Recent Activity</ThemedText>
+              </View>
+              <View style={styles.list}>
+                {recentActivity.map(({ item, entry }, index) => {
+                  const actionMap: Record<string, { icon: keyof typeof Ionicons.glyphMap; color: string; label: string }> = {
+                    loaded: { icon: "arrow-up-circle", color: Colors.blue, label: "Loaded" },
+                    delivered: { icon: "checkmark-circle", color: Colors.success, label: "Delivered" },
+                    consumed: { icon: "nutrition", color: Colors.warning, label: "Consumed" },
+                    moved: { icon: "swap-horizontal", color: Colors.blue, label: "Moved" },
+                    relocated: { icon: "navigate", color: Colors.blue, label: "Relocated" },
+                    "marked-waste": { icon: "trash", color: Colors.error, label: "Waste" },
+                    inspected: { icon: "eye", color: Colors.blue, label: "Inspected" },
+                    "nfc-assigned": { icon: "radio", color: Colors.success, label: "NFC Tag" },
+                  };
+                  const info = actionMap[entry.action] || { icon: "ellipse" as keyof typeof Ionicons.glyphMap, color: Colors.textSecondary, label: entry.action };
+                  const ts = new Date(entry.timestamp);
+                  const timeStr = `${ts.getMonth() + 1}/${ts.getDate()} ${ts.getHours().toString().padStart(2, "0")}:${ts.getMinutes().toString().padStart(2, "0")}`;
+                  return (
+                    <Pressable
+                      key={`${item.id}-${index}`}
+                      style={styles.itemRow}
+                      onPress={() => handleItemPress(item)}
+                    >
+                      <View style={[styles.itemIcon, { backgroundColor: `${info.color}15` }]}>
+                        <Ionicons name={info.icon} size={18} color={info.color} />
+                      </View>
+                      <View style={styles.itemInfo}>
+                        <ThemedText numberOfLines={1} style={styles.itemName}>
+                          {info.label}: {item.name}
+                        </ThemedText>
+                        <ThemedText style={styles.itemMeta}>
+                          {entry.notes || item.location.path}
+                        </ThemedText>
+                      </View>
+                      <View style={styles.itemRight}>
+                        <Text style={[styles.activityTime]}>{timeStr}</Text>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </View>
+          )}
+
           {activeFilter !== "ctbs" && groupedItems.incoming.length > 0 && (
             <View style={styles.section}>
               <View style={styles.sectionHeader}>
@@ -424,14 +538,14 @@ export default function HomeScreen() {
                 </View>
               </View>
               <View style={styles.list}>
-                {filteredCTBs.slice(0, 10).map(renderCTB)}
+                {(showAllCTBs ? filteredCTBs : filteredCTBs.slice(0, 10)).map(renderCTB)}
                 {filteredCTBs.length > 10 && (
                   <Pressable
                     style={styles.showMore}
-                    onPress={() => router.push("/module")}
+                    onPress={() => setShowAllCTBs(!showAllCTBs)}
                   >
                     <ThemedText style={styles.showMoreText}>
-                      View all {filteredCTBs.length} CTBs in Storage →
+                      {showAllCTBs ? 'Show less' : `View all ${filteredCTBs.length} CTBs`} →
                     </ThemedText>
                   </Pressable>
                 )}
@@ -451,14 +565,14 @@ export default function HomeScreen() {
                 </View>
               </View>
               <View style={styles.list}>
-                {groupedItems.stock.slice(0, 10).map(renderItem)}
+                {(showAllItems ? groupedItems.stock : groupedItems.stock.slice(0, 10)).map(renderItem)}
                 {groupedItems.stock.length > 10 && (
                   <Pressable
                     style={styles.showMore}
-                    onPress={() => router.push("/delivered")}
+                    onPress={() => setShowAllItems(!showAllItems)}
                   >
                     <ThemedText style={styles.showMoreText}>
-                      View all {groupedItems.stock.length} items →
+                      {showAllItems ? 'Show less' : `View all ${groupedItems.stock.length} items`} →
                     </ThemedText>
                   </Pressable>
                 )}
@@ -466,7 +580,7 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {(user?.role === "astronaut" || user?.role === "mission-specialist" || user?.role === "admin") &&
+          {!searchQuery && (user?.role === "astronaut" || user?.role === "mission-specialist" || user?.role === "admin") &&
             incomingCTBs.length > 0 && (
             <View style={styles.section}>
               <Pressable
@@ -498,7 +612,7 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {wasteAndConsumedCount > 0 && (
+          {!searchQuery && wasteAndConsumedCount > 0 && (
             <View style={styles.section}>
               <Pressable
                 style={styles.sectionLink}
@@ -525,13 +639,13 @@ export default function HomeScreen() {
                   />
                 </View>
                 <ThemedText style={styles.sectionDescription}>
-                  {(getWasteVolume() * 1000).toFixed(1)}L waste volume tracked
+                  {getWasteVolume().toFixed(3)} m³ waste volume tracked
                 </ThemedText>
               </Pressable>
             </View>
           )}
 
-          <View style={styles.section}>
+          {!searchQuery && <View style={styles.section}>
             <Pressable
               style={styles.sectionLink}
               onPress={() => router.push("/logs")}
@@ -553,9 +667,9 @@ export default function HomeScreen() {
                 View all inventory activity, scans, and transfers
               </ThemedText>
             </Pressable>
-          </View>
+          </View>}
 
-          {(user?.role === "ground-crew" ||
+          {!searchQuery && (user?.role === "ground-crew" ||
             user?.role === "loader" ||
             user?.role === "admin") && (
             <View style={styles.section}>
@@ -585,7 +699,7 @@ export default function HomeScreen() {
             </View>
           )}
 
-          <View style={styles.section}>
+          {!searchQuery && <View style={styles.section}>
             <Pressable
               style={styles.sectionLink}
               onPress={() => router.push("/module")}
@@ -607,7 +721,7 @@ export default function HomeScreen() {
                 View DSLM stack layout and CTB positions
               </ThemedText>
             </Pressable>
-          </View>
+          </View>}
 
           {activeFilter === "ctbs" && searchQuery && filteredCTBs.length === 0 && (
             <View style={styles.empty}>
@@ -929,6 +1043,11 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: 10,
     marginRight: 4,
+  },
+  activityTime: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    fontWeight: "500",
   },
   wasteBadgeText: {
     fontSize: 12,
